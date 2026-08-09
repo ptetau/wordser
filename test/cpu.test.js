@@ -28,7 +28,7 @@ test('the CPU opens on the start cell and then plays through board letters', () 
   assert.ok(g.board.allWords().length >= 2);
 });
 
-test('the CPU respects the friend rule and reports when stuck', () => {
+test('the CPU respects the friend rule and exchanges when stuck', () => {
   const g = makeGame(DICT, {
     racks: [
       ['c', 'a', 't', 'e', 'e', 'e', 'e'],
@@ -37,9 +37,16 @@ test('the CPU respects the friend rule and reports when stuck', () => {
   });
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   const words = buildWordList(new Dictionary(DICT));
-  // Player 0 just moved: a CPU in seat 0 must fail every placement.
+  // Player 0 just moved: a CPU in seat 0 may not even exchange.
   assert.equal(takeCpuTurn(g, 0, words, mulberry32(1)), null);
-  // A rack of z's can't form anything in this dictionary either.
+  // A rack of z's can't form anything here — the CPU swaps it instead.
+  const r = takeCpuTurn(g, 1, words, mulberry32(1));
+  assert.equal(r.exchanged, 7);
+  assert.ok(!g.players[1].rack.every((l) => l === 'z'));
+  // When the bag can't cover an exchange either, the CPU reports stuck.
+  g.lastPlayerId = null;
+  g.bag.pool = [];
+  g.players[1].rack = ['z', 'z', 'z', 'z', 'z', 'z', 'z'];
   assert.equal(takeCpuTurn(g, 1, words, mulberry32(1)), null);
 });
 

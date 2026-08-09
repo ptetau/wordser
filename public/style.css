@@ -161,3 +161,6 @@ details li { margin: 6px 0; }
 }
 
 .tile.dragging { opacity: 0.75; z-index: 6; position: relative; pointer-events: none; }
+
+#rack .tile { touch-action: none; }
+.tile.selected { outline: 3px solid var(--accent); outline-offset: -1px; }

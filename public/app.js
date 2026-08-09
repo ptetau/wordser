@@ -35,6 +35,7 @@ let selected = null; // { x, y } for the actions panel
 let kbCursor = null; // keyboard cursor cell, moved with the arrow keys
 let cpuWordList = null; // lazy-built candidate words for CPU players
 let pickingBlank = null; // 'placement' | 'mutate': choosing a letter for a blank
+let exchanging = null; // { picks: number[] }: rack indices marked for exchange
 
 const online = () => session !== null;
 
@@ -342,7 +343,8 @@ function renderRack() {
     $('rack-hint').textContent = '';
     return;
   }
-  $('rack-hint').textContent = online() ? '' : `— ${p.name}`;
+  $('rack-hint').textContent =
+    (online() ? '' : `— ${p.name} `) + `· ${game.bag.pool.length} in today's bag`;
   const pendingUse = placement
     ? placement.entries.filter((e) => !e.existing).map((e) => (e.fromBlank ? BLANK : e.letter))
     : [];
@@ -351,19 +353,27 @@ function renderRack() {
     const i = rack.indexOf(u);
     if (i !== -1) rack.splice(i, 1);
   }
-  for (const l of rack) {
+  rack.forEach((l, i) => {
     const t = document.createElement('button');
     t.type = 'button';
     t.className = 'tile' + (l === BLANK ? ' blank' : '');
+    if (exchanging?.picks.includes(i)) t.classList.add('selected');
     t.innerHTML = l === BLANK ? '★<sub>0</sub>' : `${l}<sub>${LETTER_VALUES[l]}</sub>`;
-    t.onclick = () => rackTap(l);
+    t.onclick = () => rackTap(l, i);
     box.appendChild(t);
-  }
+  });
   $('shuffle').hidden = !p;
 }
 
-function rackTap(letter) {
+function rackTap(letter, index) {
   if (suppressRackTap) return;
+  if (exchanging) {
+    const at = exchanging.picks.indexOf(index);
+    if (at !== -1) exchanging.picks.splice(at, 1);
+    else if (exchanging.picks.length < 7) exchanging.picks.push(index);
+    refresh();
+    return;
+  }
   if (mutating) {
     if (letter === BLANK) {
       pickingBlank = 'mutate';
@@ -458,6 +468,28 @@ function renderActions() {
     });
     return;
   }
+  if (exchanging) {
+    const n = exchanging.picks.length;
+    box.innerHTML = `<b>⇄ Exchange:</b> tap rack tiles to swap ${n ? `(${n} picked)` : ''}
+      <div class="place-controls">
+        <button id="ex-cancel" title="cancel (Esc)">✕</button>
+        <button id="ex-go" class="primary" ${n ? '' : 'disabled'}>✓ swap ${n || ''}</button>
+      </div>`;
+    $('ex-cancel').onclick = () => {
+      exchanging = null;
+      refresh();
+    };
+    $('ex-go').onclick = () => {
+      const p = game.players[currentPlayer];
+      if (!p) return;
+      const letters = exchanging.picks.map((i) => p.rack[i]).filter(Boolean);
+      doMove(
+        { type: 'exchange', letters },
+        (r) => `exchanged ${r.exchanged} letter${r.exchanged === 1 ? '' : 's'} for ${r.drawn} fresh`,
+      );
+    };
+    return;
+  }
   if (mutating) {
     const p = game.players[currentPlayer];
     const available = new Set();
@@ -512,6 +544,19 @@ function renderActions() {
   if (!selected || !game.board.get(selected.x, selected.y)) {
     box.innerHTML =
       '<span class="muted">Tap an empty cell to spell a word, or a tile to steal/mutate.</span>';
+    if (game.players[currentPlayer]) {
+      const ex = document.createElement('button');
+      ex.id = 'exchange-btn';
+      ex.style.cssText = 'display:block;width:100%;margin-top:6px';
+      ex.textContent = '⇄ Exchange letters instead of playing';
+      ex.onclick = () => {
+        cancelModes();
+        selected = null;
+        exchanging = { picks: [] };
+        refresh();
+      };
+      box.appendChild(ex);
+    }
     return;
   }
   box.innerHTML = '<div class="word-btns"></div>';
@@ -592,6 +637,7 @@ function cancelModes() {
   placement = null;
   mutating = null;
   pickingBlank = null;
+  exchanging = null;
 }
 
 function requirePlayer() {
@@ -758,7 +804,12 @@ function runCpuTurns() {
     const r = takeCpuTurn(game, p.id, cpuWordList);
     if (r) {
       acted = true;
-      status(`${p.name} played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`, '');
+      status(
+        r.exchanged
+          ? `${p.name} exchanged ${r.exchanged} letters`
+          : `${p.name} played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
+        '',
+      );
     } else if (game.lastPlayerId != null && !game.players[game.lastPlayerId].isCpu) {
       // A stuck CPU passes so the friend rule can't deadlock its humans.
       status(`${p.name} couldn't find a word and passes`, '');
@@ -1030,6 +1081,12 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (exchanging && e.key === 'Escape') {
+    exchanging = null;
+    refresh();
+    return;
+  }
+
   if (mutating) {
     if (e.key === 'Escape') {
       mutating = null;
@@ -1241,7 +1298,7 @@ let rackDrag = null;
 let suppressRackTap = false;
 const rackBox = $('rack');
 rackBox.addEventListener('pointerdown', (e) => {
-  if (placement || mutating) return;
+  if (placement || mutating || exchanging) return;
   const tile = e.target.closest('.tile');
   if (!tile) return;
   rackDrag = {

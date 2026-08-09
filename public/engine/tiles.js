@@ -1,7 +1,8 @@
 // Tile values and letter distribution (standard English Scrabble set).
-// The bag holds exactly one standard 100-tile set, drawn without
-// replacement so racks follow the real scrabble letter frequencies; play
-// never ends, so the bag refills with a fresh set whenever it empties.
+// The bag holds exactly one standard 100-tile set per day, drawn without
+// replacement so racks follow the real scrabble letter frequencies. When
+// the day's bag runs dry it stays dry — a fresh set arrives with the new
+// day (Game.startNewDay refills it).
 
 export const BLANK = '*';
 
@@ -33,17 +34,20 @@ export class Bag {
   constructor(rng = Math.random) {
     this.rng = rng;
     this.pool = [];
+    this.refill();
   }
 
-  #refill() {
+  /** Start over with a fresh full 100-tile set. */
+  refill() {
+    this.pool = [];
     for (const [letter, count] of Object.entries(DISTRIBUTION)) {
       for (let i = 0; i < count; i++) this.pool.push(letter);
     }
   }
 
-  /** Draw one tile letter ('a'-'z' or BLANK), without replacement. */
+  /** Draw one tile letter ('a'-'z' or BLANK), or null when the bag is dry. */
   draw() {
-    if (this.pool.length === 0) this.#refill();
+    if (this.pool.length === 0) return null;
     const i = Math.floor(this.rng() * this.pool.length);
     return this.pool.splice(i, 1)[0];
   }

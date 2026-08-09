@@ -53,8 +53,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
   nobody plays twice in a row (waived while you're alone in the game).
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
   words must be real. Racks refill to 7 tiles from a real scrabble bag —
-  one standard 100-tile set drawn without replacement, refilled with a
-  fresh set when it empties. Placing 7+ tiles earns a 50-point bingo.
+  **one standard 100-tile set per day**, drawn without replacement. When
+  the day's bag runs dry there are no more draws until tomorrow (steals
+  and mutations still work — board letters become the economy). Placing
+  7+ tiles earns a 50-point bingo.
+- **Exchanging.** Instead of playing a word, swap 1–7 rack letters back
+  into the bag for fresh ones. It uses your turn, and needs the bag to
+  hold at least as many tiles as you give back. A stuck CPU exchanges
+  rather than passing when it can.
 - **Stealing.** Replace any word on the board with your own word laid along
   the same line (it may be shorter or longer, and must overlap the word it
   replaces; every resulting word must be real). Old letters you reuse stay on

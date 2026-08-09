@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Bag, DISTRIBUTION, mulberry32 } from '../public/engine/tiles.js';
 
-test('the bag draws a full scrabble set without replacement', () => {
+test('the bag draws one full scrabble set, then runs dry until refilled', () => {
   const bag = new Bag(mulberry32(5));
   const counts = {};
   for (let i = 0; i < 100; i++) {
@@ -10,7 +10,9 @@ test('the bag draws a full scrabble set without replacement', () => {
     counts[l] = (counts[l] ?? 0) + 1;
   }
   assert.deepEqual(counts, DISTRIBUTION);
-  // The next hundred draws come from a fresh set with the same frequencies.
+  // The day's set is gone: the bag stays dry until the next refill.
+  assert.equal(bag.draw(), null);
+  bag.refill();
   const counts2 = {};
   for (let i = 0; i < 100; i++) {
     const l = bag.draw();
@@ -28,5 +30,6 @@ test('a rack can never hold more of a letter than the set contains', () => {
       seen[l] = (seen[l] ?? 0) + 1;
       assert.ok(seen[l] <= DISTRIBUTION[l], `${l} over-drawn`);
     }
+    bag.refill();
   }
 });

@@ -103,7 +103,11 @@ export class Game {
   }
 
   #refill(player) {
-    while (player.rack.length < RACK_TARGET) player.rack.push(this.bag.draw());
+    while (player.rack.length < RACK_TARGET) {
+      const l = this.bag.draw();
+      if (!l) break; // today's bag is dry
+      player.rack.push(l);
+    }
   }
 
   #assertCanPlay(player) {
@@ -122,6 +126,8 @@ export class Game {
     } else {
       this.log.push(`day ${this.day} ends with no winner`);
     }
+    // A brand-new bag for the new day, dealt before the fresh racks.
+    this.bag.refill();
     for (const p of this.players) {
       p.score = 0;
       // A new day deals everyone a completely fresh rack.
@@ -266,7 +272,9 @@ export class Game {
       if (type === 'lemon') {
         let n = 0;
         while (n < 2 && player.rack.length < RACK_MAX) {
-          player.rack.push(this.bag.draw());
+          const l = this.bag.draw();
+          if (!l) break;
+          player.rack.push(l);
           n++;
         }
         this.log.push(`${player.name} ate a lemon ${FRUIT_EMOJI.lemon}: ${n} extra letter${n === 1 ? '' : 's'}`);
@@ -275,21 +283,62 @@ export class Game {
         if (player.rack.length < RACK_MAX) player.rack.push(letter);
         this.log.push(`${player.name} ate a chilli ${FRUIT_EMOJI.chilli}: a fiery "${letter.toUpperCase()}"`);
       } else if (type === 'cherry') {
-        player.pendingChoice = Array.from({ length: CHERRY_CHOICES }, () => this.bag.draw());
-        this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}: choose one of ${CHERRY_CHOICES} letters`);
+        const offered = Array.from({ length: CHERRY_CHOICES }, () => this.bag.draw()).filter(Boolean);
+        if (offered.length) {
+          player.pendingChoice = offered;
+          this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}: choose one of ${offered.length} letters`);
+        } else {
+          this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}, but today's bag is empty`);
+        }
       } else if (type === 'grape') {
         player.score += GRAPE_POINTS;
         this.log.push(`${player.name} ate a grape ${FRUIT_EMOJI.grape}: +${GRAPE_POINTS} points`);
       } else if (type === 'banana') {
         const n = player.rack.length;
-        player.rack = Array.from({ length: n }, () => this.bag.draw());
-        this.log.push(`${player.name} ate a banana ${FRUIT_EMOJI.banana}: a fresh rack of ${n}`);
+        this.bag.pool.push(...player.rack);
+        player.rack = Array.from({ length: n }, () => this.bag.draw()).filter(Boolean);
+        this.log.push(`${player.name} ate a banana ${FRUIT_EMOJI.banana}: a fresh rack of ${player.rack.length}`);
       } else if (type === 'kiwi') {
         if (player.rack.length < RACK_MAX) player.rack.push(BLANK);
         this.log.push(`${player.name} ate a kiwi ${FRUIT_EMOJI.kiwi}: a wildcard`);
       }
     }
     return collected;
+  }
+
+  /**
+   * Exchange move: swap some rack letters back into today's bag for fresh
+   * ones, in place of making a word. Counts as your turn. Allowed only
+   * while the bag still holds at least as many tiles as you give back.
+   */
+  exchange({ playerId, letters }) {
+    this.#maybeRollover();
+    const player = this.player(playerId);
+    this.#assertCanPlay(player);
+    if (!Array.isArray(letters) || letters.length < 1 || letters.length > RACK_TARGET) {
+      fail('exchange between one and seven letters');
+    }
+    for (const l of letters) {
+      if (!isLetter(l) && l !== BLANK) fail(`invalid letter: ${l}`);
+    }
+    if (this.bag.pool.length < letters.length) {
+      fail("today's bag is too empty to exchange that many");
+    }
+    const rackCopy = [...player.rack];
+    for (const l of letters) {
+      if (!removeOne(rackCopy, l)) fail(`no "${l}" in your rack`);
+    }
+    const drawn = [];
+    for (let i = 0; i < letters.length; i++) {
+      const d = this.bag.draw();
+      if (d) drawn.push(d);
+    }
+    rackCopy.push(...drawn);
+    this.bag.pool.push(...letters);
+    player.rack = rackCopy;
+    this.lastPlayerId = player.id;
+    this.log.push(`${player.name}: exchanged ${letters.length} letter${letters.length === 1 ? '' : 's'} (+0)`);
+    return { exchanged: letters.length, drawn: drawn.length, points: 0 };
   }
 
   /**
@@ -691,6 +740,8 @@ export class Game {
         return this.stealReplace(move);
       case 'mutate':
         return this.mutate(move);
+      case 'exchange':
+        return this.exchange(move);
       case 'choose':
         return this.choosePendingLetter(move);
       default:
@@ -732,7 +783,7 @@ export class Game {
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
     game.lastMove = data.lastMove ?? null;
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
-    game.bag.pool = data.bag ? [...data.bag] : [];
+    if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
     game.log = [...(data.log ?? [])];
     return game;
   }

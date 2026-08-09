@@ -7,7 +7,7 @@
 
 import { Board, DIRS } from './engine/board.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
-import { GameError } from './engine/game.js';
+import { GameError, RACK_TARGET } from './engine/game.js';
 
 const MAX_WORD_LEN = 5;
 const MAX_ANCHORS = 24;
@@ -86,7 +86,7 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
       );
       if (r) return r;
     }
-    return null;
+    return tryExchange(game, playerId);
   }
 
   const anchors = [...game.board.cells.entries()].map(([k, tile]) => {
@@ -127,5 +127,17 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
       }
     }
   }
-  return null;
+  return tryExchange(game, playerId);
+}
+
+/** Nothing playable: swap the rack for fresh letters if the bag allows. */
+function tryExchange(game, playerId) {
+  const letters = game.players[playerId].rack.slice(0, RACK_TARGET);
+  if (!letters.length) return null;
+  try {
+    return game.exchange({ playerId, letters });
+  } catch (err) {
+    if (err instanceof GameError) return null;
+    throw err;
+  }
 }
