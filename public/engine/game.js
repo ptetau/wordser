@@ -16,7 +16,7 @@
 //     stays real.
 //   - Scores reset every day; each day's winner(s) get a star by their name.
 
-import { Board, WORLD, wrapCoord } from './board.js';
+import { Board, WORLD, wrapCoord, DIRS, DIR_NAMES } from './board.js';
 import { premiumAt } from './premium.js';
 import { LETTER_VALUES, BLANK, Bag } from './tiles.js';
 
@@ -141,7 +141,7 @@ export class Game {
   }
 
   #checkWordsThrough(x, y) {
-    for (const dir of ['h', 'v']) {
+    for (const dir of DIR_NAMES) {
       const w = this.board.wordThrough(x, y, dir);
       if (w && w.cells.length >= 2 && !this.dictionary.has(w.word)) {
         fail(`"${w.word}" is not a real word`);
@@ -324,10 +324,11 @@ export class Game {
     for (const t of tiles) {
       if (this.board.get(t.x, t.y)) fail(`cell (${t.x},${t.y}) is already occupied`);
     }
-    const sameRow = tiles.every((t) => t.y === tiles[0].y);
-    const sameCol = tiles.every((t) => t.x === tiles[0].x);
-    if (!sameRow && !sameCol) fail('tiles must be placed in a single row or column');
-    const dir = sameRow && (tiles.length > 1 || !sameCol) ? 'h' : 'v';
+    const dir = tiles.every((t) => t.y === tiles[0].y)
+      ? 'h'
+      : tiles.every((t) => t.x === tiles[0].x)
+        ? 'v'
+        : fail('tiles must be placed in a single row or column');
 
     // Tentatively apply; anything below that fails must revert.
     const placed = [];
@@ -350,15 +351,13 @@ export class Game {
       }
 
       // No gaps: every cell of the main line between the extremes is filled.
-      const xs = tiles.map((t) => t.x);
-      const ys = tiles.map((t) => t.y);
-      if (dir === 'h') {
-        for (let x = Math.min(...xs); x <= Math.max(...xs); x++) {
-          if (!this.board.get(x, tiles[0].y)) fail('placed tiles leave a gap');
-        }
-      } else {
-        for (let y = Math.min(...ys); y <= Math.max(...ys); y++) {
-          if (!this.board.get(tiles[0].x, y)) fail('placed tiles leave a gap');
+      const [ddx, ddy] = DIRS[dir];
+      const along = (t) => (dir === 'h' ? t.x : t.y);
+      const first = tiles.reduce((a, t) => (along(t) < along(a) ? t : a));
+      const span = Math.max(...tiles.map(along)) - along(first);
+      for (let i = 0; i <= span; i++) {
+        if (!this.board.get(first.x + i * ddx, first.y + i * ddy)) {
+          fail('placed tiles leave a gap');
         }
       }
 
@@ -366,7 +365,7 @@ export class Game {
       const seen = new Set();
       const formed = [];
       for (const t of tiles) {
-        for (const d of ['h', 'v']) {
+        for (const d of DIR_NAMES) {
           const w = this.board.wordThrough(t.x, t.y, d);
           if (!w || w.cells.length < 2) continue;
           const id = `${d}:${w.cells[0].x},${w.cells[0].y}`;
@@ -456,9 +455,9 @@ export class Game {
     }
     if (!this.dictionary.has(newWord)) fail(`"${newWord}" is not a real word`);
 
-    const dx = dir === 'h' ? 1 : 0;
-    const dy = dir === 'h' ? 0 : 1;
-    const cross = dir === 'h' ? 'v' : 'h';
+    if (!DIRS[dir]) fail(`unknown direction: ${dir}`);
+    const [dx, dy] = DIRS[dir];
+    const crossDirs = DIR_NAMES.filter((d) => d !== dir);
     const start = existing.cells[0];
     const spanCell = (i) => ({ x: start.x + (offset + i) * dx, y: start.y + (offset + i) * dy });
 
@@ -542,27 +541,27 @@ export class Game {
       for (let j = 0; j < L; j++) {
         const c = spanCell(j);
         if (!changed.has(Board.key(c.x, c.y))) continue;
-        const w = this.board.wordThrough(c.x, c.y, cross);
-        if (w && w.cells.length >= 2 && !this.dictionary.has(w.word)) {
-          fail(`"${w.word}" is not a real word`);
+        for (const cd of crossDirs) {
+          const w = this.board.wordThrough(c.x, c.y, cd);
+          if (w && w.cells.length >= 2 && !this.dictionary.has(w.word)) {
+            fail(`"${w.word}" is not a real word`);
+          }
         }
       }
       // Removing letters must not break the words that crossed them: each
-      // remaining perpendicular fragment must be a real word, and no tile may
-      // be left stranded outside any word.
-      const px = dir === 'h' ? 0 : 1;
-      const py = dir === 'h' ? 1 : 0;
+      // remaining fragment on the other axes must be a real word, and no
+      // tile may be left stranded outside any word.
       for (const v of vacated) {
-        for (const side of [-1, 1]) {
-          const nx = v.x + side * px;
-          const ny = v.y + side * py;
-          if (!this.board.get(nx, ny)) continue;
-          const w = this.board.wordThrough(nx, ny, cross);
-          if (w.cells.length >= 2) {
-            if (!this.dictionary.has(w.word)) fail(`"${w.word}" is not a real word`);
-          } else {
-            const other = this.board.wordThrough(nx, ny, dir);
-            if (!other || other.cells.length < 2) {
+        for (const cd of crossDirs) {
+          const [cdx, cdy] = DIRS[cd];
+          for (const side of [-1, 1]) {
+            const nx = v.x + side * cdx;
+            const ny = v.y + side * cdy;
+            if (!this.board.get(nx, ny)) continue;
+            const w = this.board.wordThrough(nx, ny, cd);
+            if (w.cells.length >= 2) {
+              if (!this.dictionary.has(w.word)) fail(`"${w.word}" is not a real word`);
+            } else if (!DIR_NAMES.some((d) => (this.board.wordThrough(nx, ny, d)?.cells.length ?? 0) >= 2)) {
               fail('that would leave a stranded letter on the board');
             }
           }
@@ -590,8 +589,10 @@ export class Game {
     let points = this.#scoreWord(main.cells, changed);
     for (const c of main.cells) {
       if (!changed.has(Board.key(c.x, c.y))) continue;
-      const w = this.board.wordThrough(c.x, c.y, cross);
-      if (w && w.cells.length >= 2) points += this.#scoreWord(w.cells, changed);
+      for (const cd of crossDirs) {
+        const w = this.board.wordThrough(c.x, c.y, cd);
+        if (w && w.cells.length >= 2) points += this.#scoreWord(w.cells, changed);
+      }
     }
 
     const coveredKeys = [];
@@ -637,7 +638,7 @@ export class Game {
     const tile = fromBlank ? { isBlank: true, as: letter } : { letter };
     this.board.set(x, y, tile);
     try {
-      const words = ['h', 'v']
+      const words = DIR_NAMES
         .map((d) => this.board.wordThrough(x, y, d))
         .filter((w) => w && w.cells.length >= 2);
       if (words.length === 0) fail('that tile is not part of a word');

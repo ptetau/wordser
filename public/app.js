@@ -1,10 +1,12 @@
 import { Game, GameError, FRUIT_EMOJI, START_CELL } from './engine/game.js';
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
-import { Board, WORLD, wrapCoord } from './engine/board.js';
+import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
+import { THEMES, DEFAULT_THEME } from './themes/index.js';
+import midnight from './themes/midnight.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('board');
@@ -38,10 +40,70 @@ let pickingBlank = null; // 'placement' | 'mutate': choosing a letter for a blan
 const online = () => session !== null;
 
 // ---------------------------------------------------------------- rendering
-const cam = { x: -6.5, y: -4.5, cell: 44 };
+// cam.x/cam.y are the world-pixel coordinates of the screen's top-left
+// corner; cam.cell is the hex size (centre to corner) in pixels.
+const cam = { x: -400, y: -300, cell: 46 };
 
-const PREMIUM_FILL = { TW: '#8c2f23', DW: '#6e4038', TL: '#1f5d8a', DL: '#3d5a75' };
 const PREMIUM_TEXT = { TW: '3×W', DW: '2×W', TL: '3×L', DL: '2×L' };
+
+// ------------------------------------------------------------------- themes
+let theme = midnight;
+const T = () => theme.canvas;
+
+function applyTheme(t) {
+  theme = t;
+  for (const [k, v] of Object.entries(t.css ?? {})) {
+    document.documentElement.style.setProperty(k, v);
+  }
+  try {
+    localStorage.setItem('wordser:theme', t.id);
+  } catch {}
+  const sel = $('theme-select');
+  if (sel) sel.value = t.id;
+  refresh();
+}
+
+async function loadTheme(id) {
+  const load = THEMES[id] ?? THEMES[DEFAULT_THEME];
+  try {
+    applyTheme((await load()).default);
+  } catch (err) {
+    console.error('theme failed to load', err);
+    applyTheme(midnight);
+  }
+}
+
+/** A per-cell stable hash for texture jitter (grain, speckle). */
+const cellHash = (x, y) => {
+  let h = (Math.imul(wrapCoord(x) + 1, 73856093) ^ Math.imul(wrapCoord(y) + 1, 19349663)) >>> 0;
+  return () => {
+    h = (Math.imul(h, 1597334677) + 12345) >>> 0;
+    return h / 4294967296;
+  };
+};
+
+const DIR_GLYPH = { h: '→', v: '↓' };
+const NEXT_DIR = { h: 'v', v: 'h' };
+
+/** Screen-space centre of cell (x, y) on the octagon lattice. */
+function hexCenter(x, y) {
+  return [x * cam.cell + cam.cell / 2 - cam.x, y * cam.cell + cam.cell / 2 - cam.y];
+}
+
+/** A regular-ish octagon inscribed in the square of half-width a. */
+function hexPath(cx, cy, a) {
+  const k = a * 0.586;
+  ctx.beginPath();
+  ctx.moveTo(cx - a + k, cy - a);
+  ctx.lineTo(cx + a - k, cy - a);
+  ctx.lineTo(cx + a, cy - a + k);
+  ctx.lineTo(cx + a, cy + a - k);
+  ctx.lineTo(cx + a - k, cy + a);
+  ctx.lineTo(cx - a + k, cy + a);
+  ctx.lineTo(cx - a, cy + a - k);
+  ctx.lineTo(cx - a, cy - a + k);
+  ctx.closePath();
+}
 
 let camCentered = false;
 function resize() {
@@ -52,131 +114,189 @@ function resize() {
   if (!camCentered && canvas.clientWidth > 0) {
     // Open with the ★ start cell centred, whatever the screen size.
     camCentered = true;
-    cam.x = START_CELL.x + 0.5 - canvas.clientWidth / cam.cell / 2;
-    cam.y = START_CELL.y + 0.5 - canvas.clientHeight / cam.cell / 2;
+    cam.x = cam.cell / 2 - canvas.clientWidth / 2;
+    cam.y = cam.cell / 2 - canvas.clientHeight / 2;
   }
   render();
 }
 window.addEventListener('resize', resize);
 
 function cellAt(px, py) {
-  return { x: Math.floor(cam.x + px / cam.cell), y: Math.floor(cam.y + py / cam.cell) };
+  return {
+    x: Math.floor((px + cam.x) / cam.cell),
+    y: Math.floor((py + cam.y) / cam.cell),
+  };
+}
+
+/** Iterate every cell that could be visible, with a margin. */
+function* visibleHexes() {
+  const s = cam.cell;
+  const x0 = Math.floor(cam.x / s) - 1;
+  const x1 = Math.ceil((cam.x + canvas.clientWidth) / s) + 1;
+  const y0 = Math.floor(cam.y / s) - 1;
+  const y1 = Math.ceil((cam.y + canvas.clientHeight) / s) + 1;
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) yield [x, y];
+  }
 }
 
 function render() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   ctx.clearRect(0, 0, w, h);
-  const x0 = Math.floor(cam.x) - 1;
-  const y0 = Math.floor(cam.y) - 1;
-  const x1 = Math.ceil(cam.x + w / cam.cell) + 1;
-  const y1 = Math.ceil(cam.y + h / cam.cell) + 1;
   const c = cam.cell;
-
-  for (let x = x0; x <= x1; x++) {
-    for (let y = y0; y <= y1; y++) {
-      const sx = (x - cam.x) * c;
-      const sy = (y - cam.y) * c;
-      const p = premiumAt(x, y);
-      const isStart = wrapCoord(x) === START_CELL.x && wrapCoord(y) === START_CELL.y;
-      ctx.fillStyle = p ? PREMIUM_FILL[p] : isStart ? '#2c3140' : '#262b35';
-      ctx.fillRect(sx + 1, sy + 1, c - 2, c - 2);
-      if (p && c >= 30 && !isStart) {
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.font = `${Math.floor(c / 4)}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(PREMIUM_TEXT[p], sx + c / 2, sy + c / 2);
-      }
-    }
-  }
-
-  // Seams of the looping 120×120 world.
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.lineWidth = 1.5;
-  for (let x = x0; x <= x1; x++) {
-    if (wrapCoord(x) !== 0) continue;
-    ctx.beginPath();
-    ctx.moveTo((x - cam.x) * c, 0);
-    ctx.lineTo((x - cam.x) * c, h);
-    ctx.stroke();
-  }
-  for (let y = y0; y <= y1; y++) {
-    if (wrapCoord(y) !== 0) continue;
-    ctx.beginPath();
-    ctx.moveTo(0, (y - cam.y) * c);
-    ctx.lineTo(w, (y - cam.y) * c);
-    ctx.stroke();
-  }
+  const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';
 
   const drawTile = (x, y, letter, { blank = false, pending = false, redefine = false } = {}) => {
-    const sx = (x - cam.x) * c;
-    const sy = (y - cam.y) * c;
-    const pad = Math.max(2, c * 0.06);
-    ctx.fillStyle = pending ? '#f2d377' : blank ? '#cfd8e3' : '#e9dcc3';
-    ctx.beginPath();
-    ctx.roundRect(sx + pad, sy + pad, c - pad * 2, c - pad * 2, c * 0.12);
-    ctx.fill();
+    const t = T().tile;
+    const [cx, cy] = hexCenter(x, y);
+    const face = pending ? t.pendingFace : blank ? t.blankFace : t.face;
+    hexPath(cx, cy, c * 0.42);
+    if (t.style === 'bevel') {
+      // A soft top-lit face with a darker lower edge reads as a raised tile.
+      const grad = ctx.createLinearGradient(cx, cy - c / 2, cx, cy + c / 2);
+      grad.addColorStop(0, (pending ? t.pendingFaceLight : t.faceLight) ?? face);
+      grad.addColorStop(1, (pending ? t.pendingFaceDark : t.faceDark) ?? face);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      if (t.edgeDark) {
+        ctx.strokeStyle = t.edgeDark;
+        ctx.lineWidth = Math.max(1.5, c * 0.045);
+        ctx.stroke();
+      }
+      if (t.edgeLight) {
+        hexPath(cx, cy - c * 0.03, c * 0.37);
+        ctx.strokeStyle = t.edgeLight;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      hexPath(cx, cy, c * 0.42);
+    } else {
+      ctx.fillStyle = face;
+      ctx.fill();
+    }
+    if (t.grain && !pending && !blank) {
+      // Wood streaks, jittered per cell so no two tiles match.
+      const rnd = cellHash(x, y);
+      ctx.save();
+      ctx.clip();
+      ctx.strokeStyle = t.grain;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const gy = cy - c * 0.35 + rnd() * c * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(cx - c / 2, gy);
+        ctx.bezierCurveTo(cx - c * 0.17, gy + rnd() * c * 0.12 - c * 0.06, cx + c * 0.17, gy - rnd() * c * 0.12 + c * 0.06, cx + c / 2, gy);
+        ctx.stroke();
+      }
+      ctx.restore();
+      hexPath(cx, cy, c * 0.42);
+    }
     if (redefine) {
-      ctx.strokeStyle = '#b05cd6';
+      ctx.strokeStyle = T().redefine;
       ctx.lineWidth = 2;
       ctx.stroke();
     }
-    ctx.fillStyle = '#2b2417';
-    ctx.font = `700 ${Math.floor(c * 0.5)}px system-ui`;
+    ctx.fillStyle = t.text;
+    ctx.font = `700 ${Math.floor(c * 0.48)}px ${T().letterFont ?? 'system-ui'}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(letter.toUpperCase(), sx + c / 2, sy + c / 2 - c * 0.02);
+    ctx.fillText(letter.toUpperCase(), cx, cy - c * 0.02);
     const v = blank ? 0 : LETTER_VALUES[letter] ?? 0;
-    ctx.font = `${Math.floor(c * 0.2)}px system-ui`;
-    ctx.textAlign = 'right';
-    ctx.fillText(String(v), sx + c - pad - 2, sy + c - pad - c * 0.12);
+    ctx.font = `${Math.floor(c * 0.19)}px ${T().letterFont ?? 'system-ui'}`;
+    ctx.fillText(String(v), cx + c * 0.24, cy + c * 0.3);
   };
 
-  const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';
+  const lm = game.lastMove && !placement ? new Set(game.lastMove.keys) : null;
 
-  // Tiles, fruits, and the start star — looked up per visible cell so the
-  // looping world repeats in every direction.
-  for (let x = x0; x <= x1; x++) {
-    for (let y = y0; y <= y1; y++) {
-      const tile = game.board.get(x, y);
-      if (tile) {
-        drawTile(x, y, Board.effective(tile), { blank: !!tile.isBlank });
-        continue;
-      }
-      const fruit = game.fruits.get(Board.key(x, y));
-      if (fruit) {
-        const fx = (x - cam.x) * c + c / 2;
-        const fy = (y - cam.y) * c + c / 2;
+  // The little squares of the truncated-square tiling, purely decorative.
+  {
+    const k = c * 0.5 * 0.586 * 0.82;
+    ctx.fillStyle = T().gapFill ?? T().seamFill;
+    const x0 = Math.floor(cam.x / c) - 1;
+    const x1 = Math.ceil((cam.x + w) / c) + 1;
+    const y0 = Math.floor(cam.y / c) - 1;
+    const y1 = Math.ceil((cam.y + h) / c) + 1;
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        const vx = x * c - cam.x;
+        const vy = y * c - cam.y;
         ctx.beginPath();
-        ctx.arc(fx, fy, c * 0.42, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(242,211,119,0.5)';
+        ctx.moveTo(vx, vy - k);
+        ctx.lineTo(vx + k, vy);
+        ctx.lineTo(vx, vy + k);
+        ctx.lineTo(vx - k, vy);
+        ctx.closePath();
         ctx.fill();
-        // Keep fruit legible even zoomed far out.
-        ctx.font = `${Math.max(16, Math.floor(c * 0.72))}px ${EMOJI_FONT}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(FRUIT_EMOJI[fruit] ?? '🍇', fx, fy + c * 0.05);
-      } else if (wrapCoord(x) === START_CELL.x && wrapCoord(y) === START_CELL.y) {
-        ctx.fillStyle = 'rgba(227,179,65,0.9)';
-        ctx.font = `${Math.floor(c * 0.55)}px system-ui`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('★', (x - cam.x) * c + c / 2, (y - cam.y) * c + c / 2 + c * 0.02);
       }
     }
   }
 
-  // Highlight the most recent move so opponent/CPU plays are easy to spot.
-  if (game.lastMove?.keys?.length && !placement) {
-    const lm = new Set(game.lastMove.keys);
-    ctx.strokeStyle = 'rgba(127,212,255,0.6)';
-    ctx.lineWidth = 2;
-    for (let x = x0; x <= x1; x++) {
-      for (let y = y0; y <= y1; y++) {
-        if (!lm.has(Board.key(x, y))) continue;
-        ctx.strokeRect((x - cam.x) * c + 2, (y - cam.y) * c + 2, c - 4, c - 4);
+  for (const [x, y] of visibleHexes()) {
+    const [cx, cy] = hexCenter(x, y);
+    const p = premiumAt(x, y);
+    const isStart = wrapCoord(x) === START_CELL.x && wrapCoord(y) === START_CELL.y;
+    const onSeam = wrapCoord(x) === 0 || wrapCoord(y) === 0;
+    hexPath(cx, cy, c * 0.46);
+    ctx.fillStyle = p
+      ? T().premium[p]
+      : isStart
+        ? T().startFill
+        : onSeam
+          ? T().seamFill
+          : T().cellFill;
+    ctx.fill();
+    if (T().cellStroke) {
+      ctx.strokeStyle = T().cellStroke;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    if (T().speckle && !p) {
+      // A pinch of felt-like texture, stable per cell.
+      const rnd = cellHash(x, y);
+      ctx.fillStyle = T().speckle;
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(cx - c * 0.35 + rnd() * c * 0.7, cy - c * 0.35 + rnd() * c * 0.7, 1.5, 1.5);
       }
+    }
+    if (p && c >= 26 && !isStart) {
+      ctx.fillStyle = T().premiumLabel;
+      ctx.font = `${Math.floor(c * 0.24)}px ${T().letterFont ?? 'system-ui'}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(PREMIUM_TEXT[p], cx, cy);
+    }
+
+    const tile = game.board.get(x, y);
+    if (tile) {
+      drawTile(x, y, Board.effective(tile), { blank: !!tile.isBlank });
+    } else {
+      const fruit = game.fruits.get(Board.key(x, y));
+      if (fruit) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, c * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = T().fruitRing;
+        ctx.fill();
+        // Keep fruit legible even zoomed far out.
+        ctx.font = `${Math.max(16, Math.floor(c * 0.68))}px ${EMOJI_FONT}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(FRUIT_EMOJI[fruit] ?? '🍇', cx, cy + c * 0.08);
+      } else if (isStart) {
+        ctx.fillStyle = T().star;
+        ctx.font = `${Math.floor(c * 0.55)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('★', cx, cy + c * 0.03);
+      }
+    }
+
+    // Highlight the most recent move so opponent/CPU plays are easy to spot.
+    if (lm?.has(Board.key(x, y))) {
+      hexPath(cx, cy, c * 0.46);
+      ctx.strokeStyle = T().lastMove;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
   }
 
@@ -188,41 +308,39 @@ function render() {
       }
     }
     const cur = nextCell();
-    const sx = (cur.x - cam.x) * c;
-    const sy = (cur.y - cam.y) * c;
-    ctx.strokeStyle = '#f2d377';
+    const [cx, cy] = hexCenter(cur.x, cur.y);
+    hexPath(cx, cy, c * 0.46);
+    ctx.strokeStyle = T().cursor;
     ctx.lineWidth = 2.5;
-    ctx.strokeRect(sx + 2, sy + 2, c - 4, c - 4);
-    ctx.fillStyle = '#f2d377';
-    ctx.font = `700 ${Math.floor(c * 0.4)}px system-ui`;
+    ctx.stroke();
+    ctx.fillStyle = T().cursor;
+    ctx.font = `700 ${Math.floor(c * 0.42)}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(placement.dir === 'h' ? '→' : '↓', sx + c / 2, sy + c / 2);
+    ctx.fillText(DIR_GLYPH[placement.dir], cx, cy);
   } else if (selected) {
-    const sx = (selected.x - cam.x) * c;
-    const sy = (selected.y - cam.y) * c;
-    ctx.strokeStyle = '#7fd4ff';
+    const [cx, cy] = hexCenter(selected.x, selected.y);
+    hexPath(cx, cy, c * 0.46);
+    ctx.strokeStyle = T().selected;
     ctx.lineWidth = 2.5;
-    ctx.strokeRect(sx + 2, sy + 2, c - 4, c - 4);
+    ctx.stroke();
   }
 
   if (kbCursor && !placement) {
-    const sx = (kbCursor.x - cam.x) * c;
-    const sy = (kbCursor.y - cam.y) * c;
-    ctx.strokeStyle = 'rgba(242,211,119,0.8)';
+    const [cx, cy] = hexCenter(kbCursor.x, kbCursor.y);
+    hexPath(cx, cy, c * 0.46);
+    ctx.strokeStyle = T().cursor;
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
-    ctx.strokeRect(sx + 2, sy + 2, c - 4, c - 4);
+    ctx.stroke();
     ctx.setLineDash([]);
   }
 }
 
 function nextCell() {
   const n = placement.entries.length;
-  return {
-    x: placement.sx + (placement.dir === 'h' ? n : 0),
-    y: placement.sy + (placement.dir === 'v' ? n : 0),
-  };
+  const [dx, dy] = DIRS[placement.dir];
+  return { x: placement.sx + n * dx, y: placement.sy + n * dy };
 }
 
 // ------------------------------------------------------------------- panels
@@ -400,7 +518,7 @@ function renderActions() {
     box.innerHTML = `${heading}${note}
       ${placement.stealing ? '<div class="muted" style="margin-top:2px">spell the new word — arrows slide it along the line</div>' : ''}
       <div class="place-controls">
-        ${placement.stealing ? '' : `<button id="pc-dir" title="flip direction (Space)">${placement.dir === 'h' ? '→' : '↓'}</button>`}
+        ${placement.stealing ? '' : `<button id="pc-dir" title="cycle direction (Space)">${DIR_GLYPH[placement.dir]}</button>`}
         <button id="pc-undo" title="undo letter (Backspace)">⌫</button>
         <button id="pc-cancel" title="cancel (Esc)">✕</button>
         <button id="pc-play" class="primary" title="play word (Enter)">✓${preview?.ok ? ` ${preview.points}` : ''}</button>
@@ -430,10 +548,10 @@ function renderActions() {
     b.onclick = fn;
     btns.appendChild(b);
   };
-  for (const dir of ['h', 'v']) {
+  for (const dir of Object.keys(DIRS)) {
     const w = game.board.wordThrough(selected.x, selected.y, dir);
     if (w && w.cells.length >= 2) {
-      mkBtn(`Steal ${dir === 'h' ? '→' : '↓'} "${w.word.toUpperCase()}"`, () => stealWord(w, dir));
+      mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir));
     }
   }
   mkBtn('Mutate this letter', () => {
@@ -788,12 +906,12 @@ canvas.addEventListener('pointermove', (e) => {
     const rect = canvas.getBoundingClientRect();
     const mx = (a.x + b.x) / 2 - rect.left;
     const my = (a.y + b.y) / 2 - rect.top;
-    const anchorX = cam.x + mx / cam.cell;
-    const anchorY = cam.y + my / cam.cell;
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    cam.cell = Math.min(72, Math.max(18, (pinch.cell * dist) / pinch.dist));
-    cam.x = anchorX - mx / cam.cell;
-    cam.y = anchorY - my / cam.cell;
+    const s2 = Math.min(80, Math.max(20, (pinch.cell * dist) / pinch.dist));
+    const k = s2 / cam.cell;
+    cam.x = (cam.x + mx) * k - mx;
+    cam.y = (cam.y + my) * k - my;
+    cam.cell = s2;
     render();
     return;
   }
@@ -802,8 +920,8 @@ canvas.addEventListener('pointermove', (e) => {
   const dy = e.clientY - drag.py;
   if (Math.abs(dx) + Math.abs(dy) > 10) drag.moved = true;
   if (drag.moved) {
-    cam.x -= dx / cam.cell;
-    cam.y -= dy / cam.cell;
+    cam.x -= dx;
+    cam.y -= dy;
     drag.px = e.clientX;
     drag.py = e.clientY;
     render();
@@ -832,9 +950,12 @@ function tapCell({ x, y }) {
   // A tap while a word is being spelled moves the word instead of wiping it.
   if (placement?.entries.length && !game.board.get(x, y)) {
     if (placement.stealing) {
-      const st = placement.stealing;
-      if (st.dir === 'h' && y === placement.sy) slidePlacement(x - placement.sx, 0);
-      else if (st.dir === 'v' && x === placement.sx) slidePlacement(0, y - placement.sy);
+      // Slide only along the stolen word's hex line.
+      const [dx, dy] = DIRS[placement.stealing.dir];
+      const k = dy !== 0 ? y - placement.sy : x - placement.sx;
+      if (placement.sx + k * dx === x && placement.sy + k * dy === y) {
+        slidePlacement(k * dx, k * dy);
+      }
       refresh();
       return;
     }
@@ -859,10 +980,11 @@ function slidePlacement(dx, dy) {
   placement.sx += dx;
   placement.sy += dy;
   if (placement.stealing) {
+    const [dx, dy] = DIRS[placement.dir];
     placement.entries = placement.entries.map((e, i) => ({
       ...e,
-      x: placement.sx + (placement.dir === 'h' ? i : 0),
-      y: placement.sy + (placement.dir === 'v' ? i : 0),
+      x: placement.sx + i * dx,
+      y: placement.sy + i * dy,
     }));
   } else {
     const typed = placement.entries.map((e) => e.typed);
@@ -878,11 +1000,11 @@ canvas.addEventListener(
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    const anchorX = cam.x + px / cam.cell;
-    const anchorY = cam.y + py / cam.cell;
-    cam.cell = Math.min(72, Math.max(18, cam.cell * (e.deltaY > 0 ? 0.9 : 1.1)));
-    cam.x = anchorX - px / cam.cell;
-    cam.y = anchorY - py / cam.cell;
+    const s2 = Math.min(80, Math.max(20, cam.cell * (e.deltaY > 0 ? 0.9 : 1.1)));
+    const k = s2 / cam.cell;
+    cam.x = (cam.x + px) * k - px;
+    cam.y = (cam.y + py) * k - py;
+    cam.cell = s2;
     render();
   },
   { passive: false },
@@ -892,14 +1014,14 @@ const ARROWS = {
   arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1],
 };
 
-/** Pan the camera the minimum needed to keep cell (x, y) comfortably visible. */
+/** Pan the camera the minimum needed to keep hex (x, y) comfortably visible. */
 function ensureVisible(x, y) {
-  const w = canvas.clientWidth / cam.cell;
-  const h = canvas.clientHeight / cam.cell;
-  if (x < cam.x + 1) cam.x = x - 1;
-  if (x + 1 > cam.x + w - 1) cam.x = x + 2 - w;
-  if (y < cam.y + 1) cam.y = y - 1;
-  if (y + 1 > cam.y + h - 1) cam.y = y + 2 - h;
+  const [cx, cy] = hexCenter(x, y);
+  const m = cam.cell * 2;
+  if (cx < m) cam.x += cx - m;
+  if (cx > canvas.clientWidth - m) cam.x += cx - (canvas.clientWidth - m);
+  if (cy < m) cam.y += cy - m;
+  if (cy > canvas.clientHeight - m) cam.y += cy - (canvas.clientHeight - m);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -931,9 +1053,15 @@ window.addEventListener('keydown', (e) => {
       // Move the whole word start; the viewport follows the cursor.
       e.preventDefault();
       if (placement.stealing) {
-        // Stealing slides only along the stolen word's line.
-        const st = placement.stealing;
-        if ((st.dir === 'h' && arrow[1] !== 0) || (st.dir === 'v' && arrow[0] !== 0)) return;
+        // Stealing slides only along the stolen word's line: right/down step
+        // forward, left/up step back.
+        const [dx, dy] = DIRS[placement.stealing.dir];
+        const k = arrow[0] > 0 || arrow[1] > 0 ? 1 : -1;
+        slidePlacement(k * dx, k * dy);
+        const cur = nextCell();
+        ensureVisible(cur.x, cur.y);
+        refresh();
+        return;
       }
       slidePlacement(arrow[0], arrow[1]);
       const cur = nextCell();
@@ -963,10 +1091,7 @@ window.addEventListener('keydown', (e) => {
   if (arrow) {
     e.preventDefault();
     if (!kbCursor) {
-      kbCursor = {
-        x: Math.round(cam.x + canvas.clientWidth / cam.cell / 2),
-        y: Math.round(cam.y + canvas.clientHeight / cam.cell / 2),
-      };
+      kbCursor = cellAt(canvas.clientWidth / 2, canvas.clientHeight / 2);
     } else {
       kbCursor.x += arrow[0];
       kbCursor.y += arrow[1];
@@ -984,11 +1109,14 @@ window.addEventListener('keydown', (e) => {
       placement = { sx: kbCursor.x, sy: kbCursor.y, dir: 'h', entries: [] };
       typeLetter(key);
     }
-  } else if (key === '+' || key === '=') {
-    cam.cell = Math.min(72, cam.cell * 1.1);
-    render();
-  } else if (key === '-') {
-    cam.cell = Math.max(18, cam.cell * 0.9);
+  } else if (key === '+' || key === '=' || key === '-') {
+    const mx = canvas.clientWidth / 2;
+    const my = canvas.clientHeight / 2;
+    const s2 = Math.min(80, Math.max(20, cam.cell * (key === '-' ? 0.9 : 1.1)));
+    const k = s2 / cam.cell;
+    cam.x = (cam.x + mx) * k - mx;
+    cam.y = (cam.y + my) * k - my;
+    cam.cell = s2;
     render();
   }
 });
@@ -999,7 +1127,7 @@ function flipDirection() {
   placement = {
     sx: placement.sx,
     sy: placement.sy,
-    dir: placement.dir === 'h' ? 'v' : 'h',
+    dir: NEXT_DIR[placement.dir],
     entries: [],
   };
   for (const t of typed) {
@@ -1120,6 +1248,25 @@ $('end-day').addEventListener('click', () => {
   );
   refresh();
 });
+
+const themeSelect = $('theme-select');
+for (const id of Object.keys(THEMES)) {
+  const opt = document.createElement('option');
+  opt.value = id;
+  opt.textContent = id;
+  themeSelect.appendChild(opt);
+}
+themeSelect.addEventListener('change', () => loadTheme(themeSelect.value));
+{
+  const urlTheme = new URLSearchParams(location.search).get('theme');
+  let saved = null;
+  try {
+    saved = localStorage.getItem('wordser:theme');
+  } catch {}
+  const initial = urlTheme ?? saved ?? DEFAULT_THEME;
+  if (initial !== 'midnight') loadTheme(initial);
+  else applyTheme(midnight);
+}
 
 resize();
 refresh();

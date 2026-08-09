@@ -5,7 +5,7 @@
 // let the rules engine validate — game.place() either commits the move or
 // throws and reverts, so the engine itself is the referee.
 
-import { Board } from './engine/board.js';
+import { Board, DIRS } from './engine/board.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { GameError } from './engine/game.js';
 
@@ -104,7 +104,7 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
         from = i + 1;
         const tiles = formable(w, rack, i);
         if (!tiles) continue;
-        for (const [dx, dy] of [[1, 0], [0, 1]]) {
+        for (const [dx, dy] of Object.values(DIRS)) {
           // Cheap precheck: every other cell of the span must be empty.
           const cells = [];
           let ok = true;

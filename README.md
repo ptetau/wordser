@@ -1,8 +1,8 @@
 # wordser
 
-N-player scrabble on a looping 120×120 world. Letters can be stolen, words
-can be rewritten under your opponents' feet, bonus fruits dot the plain, and
-every day crowns a winner.
+N-player scrabble on a looping 120×120 world of octagonal cells. Letters
+can be stolen, words can be rewritten under your opponents' feet, bonus
+fruits dot the plain, and every day crowns a winner.
 
 ## Play it
 
@@ -35,7 +35,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 ## The rules
 
-- **A looping world.** The board is a 120×120 torus: walk off one edge and
+- **A looping world.** The board is a 120×120 torus of octagons (the
+  truncated-square tiling — little diamonds fill the corners): walk off one
+  edge and
   you come back on the other, and words may wrap around the seam. The first
   word must cover the ★ start cell at the origin (which sits on a
   double-word star); every later word must connect to what's on the board.
@@ -84,6 +86,7 @@ can be plugged in by deployments holding a licence — see
 
 ```
 public/engine/   game rules: board, premiums, tiles, dictionary, moves, scoring
+public/themes/   selectable skeuomorphic looks for the board and page chrome
 public/          canvas UI, touch + keyboard friendly (no build step, ES modules)
 public/data/     bundled word list
 api/game.js      online play: serverless endpoint running the same engine
