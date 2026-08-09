@@ -16,7 +16,7 @@
 //     stays real.
 //   - Scores reset every day; each day's winner(s) get a star by their name.
 
-import { Board } from './board.js';
+import { Board, WORLD, wrapCoord } from './board.js';
 import { premiumAt } from './premium.js';
 import { LETTER_VALUES, BLANK, Bag } from './tiles.js';
 
@@ -24,14 +24,28 @@ export const RACK_TARGET = 7;
 export const RACK_MAX = 12;
 export const BINGO_BONUS = 50;
 
+// The first word of a game must cover the start cell at the origin, which
+// sits on a double-word star of the premium tiling.
+export const START_CELL = { x: 0, y: 0 };
+
 // Bonus fruits appear on empty cells near the action, pac-man style. Cover
 // one with a newly placed tile to eat it.
-export const FRUIT_EMOJI = { lemon: '🍋', cherry: '🍒', chilli: '🌶️' };
+export const FRUIT_EMOJI = {
+  lemon: '🍋', cherry: '🍒', chilli: '🌶️', grape: '🍇', banana: '🍌', kiwi: '🥝',
+};
+const FRUIT_TABLE = [
+  ['lemon', 0.22], ['cherry', 0.18], ['chilli', 0.15],
+  ['grape', 0.15], ['banana', 0.15], ['kiwi', 0.15],
+];
 const FRUIT_CHANCE = 0.6;
-const MAX_FRUITS = 5;
+const MAX_FRUITS = 12;
+const INITIAL_FRUITS = 12;
 const FRUIT_RADIUS = 4;
+const FRUIT_SPACING = 6; // min toroidal distance between fruits mid-game
+const INITIAL_SPACING = 14; // min spread for the opening scatter
 const CHERRY_CHOICES = 7;
 const FIERY_LETTERS = ['j', 'q', 'x', 'z'];
+const GRAPE_POINTS = 10;
 
 export class GameError extends Error {}
 
@@ -61,6 +75,7 @@ export class Game {
     this.board = new Board();
     this.fruits = new Map(); // "x,y" -> fruit type, always on empty cells
     this.bag = new Bag(rng);
+    this.#seedFruits();
     this.players = [];
     this.lastPlayerId = null;
     this.day = 1;
@@ -156,26 +171,65 @@ export class Game {
     this.#refill(player);
     this.log.push(`${player.name}: ${message} (+${points})`);
     const fruits = this.#collectFruits(player, coveredKeys);
-    this.spawnFruit();
+    this.spawnFruit(FRUIT_CHANCE, coveredKeys);
     return fruits;
   }
 
+  #rollFruitType() {
+    let r = this.bag.rng();
+    let type = FRUIT_TABLE[FRUIT_TABLE.length - 1][0];
+    for (const [t, weight] of FRUIT_TABLE) {
+      if (r < weight) {
+        type = t;
+        break;
+      }
+      r -= weight;
+    }
+    return type;
+  }
+
+  /** Smallest toroidal chebyshev distance from (x, y) to any current fruit. */
+  #fruitDistance(x, y) {
+    let best = Infinity;
+    for (const k of this.fruits.keys()) {
+      const [fx, fy] = k.split(',').map(Number);
+      const dx = Math.abs(wrapCoord(x) - fx);
+      const dy = Math.abs(wrapCoord(y) - fy);
+      const d = Math.max(Math.min(dx, WORLD - dx), Math.min(dy, WORLD - dy));
+      best = Math.min(best, d);
+    }
+    return best;
+  }
+
+  /** Scatter the opening fruits across the world, well spread out. */
+  #seedFruits() {
+    for (let tries = 0; this.fruits.size < INITIAL_FRUITS && tries < 400; tries++) {
+      const x = Math.floor(this.bag.rng() * WORLD);
+      const y = Math.floor(this.bag.rng() * WORLD);
+      if (x === START_CELL.x && y === START_CELL.y) continue;
+      if (this.#fruitDistance(x, y) < INITIAL_SPACING) continue;
+      this.fruits.set(Board.key(x, y), this.#rollFruitType());
+    }
+  }
+
   /**
-   * Maybe drop a fruit on an empty cell near the existing tiles. Called after
-   * every move; tests can pass chance = 1 to force an attempt.
+   * Maybe drop a fruit on an empty cell near the action — anchored to the
+   * cells of the move just played when given, so new fruit always appears
+   * where players are looking, but never bunched against another fruit.
+   * Tests can pass chance = 1 to force an attempt.
    */
-  spawnFruit(chance = FRUIT_CHANCE) {
+  spawnFruit(chance = FRUIT_CHANCE, anchorKeys = []) {
     if (this.fruits.size >= MAX_FRUITS || this.board.isEmpty()) return null;
     if (this.bag.rng() >= chance) return null;
-    const anchors = [...this.board.cells.keys()];
+    const anchors = anchorKeys.length ? anchorKeys : [...this.board.cells.keys()];
     const [ax, ay] = anchors[Math.floor(this.bag.rng() * anchors.length)].split(',').map(Number);
     for (let tries = 0; tries < 12; tries++) {
       const x = ax + Math.floor(this.bag.rng() * (2 * FRUIT_RADIUS + 1)) - FRUIT_RADIUS;
       const y = ay + Math.floor(this.bag.rng() * (2 * FRUIT_RADIUS + 1)) - FRUIT_RADIUS;
       const k = Board.key(x, y);
       if (this.board.get(x, y) || this.fruits.has(k)) continue;
-      const r = this.bag.rng();
-      const type = r < 0.5 ? 'lemon' : r < 0.75 ? 'cherry' : 'chilli';
+      if (this.#fruitDistance(x, y) < FRUIT_SPACING) continue;
+      const type = this.#rollFruitType();
       this.fruits.set(k, type);
       this.log.push(`a ${type} ${FRUIT_EMOJI[type]} appeared`);
       return { x, y, type };
@@ -204,6 +258,16 @@ export class Game {
       } else if (type === 'cherry') {
         player.pendingChoice = Array.from({ length: CHERRY_CHOICES }, () => this.bag.draw());
         this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}: choose one of ${CHERRY_CHOICES} letters`);
+      } else if (type === 'grape') {
+        player.score += GRAPE_POINTS;
+        this.log.push(`${player.name} ate a grape ${FRUIT_EMOJI.grape}: +${GRAPE_POINTS} points`);
+      } else if (type === 'banana') {
+        const n = player.rack.length;
+        player.rack = Array.from({ length: n }, () => this.bag.draw());
+        this.log.push(`${player.name} ate a banana ${FRUIT_EMOJI.banana}: a fresh rack of ${n}`);
+      } else if (type === 'kiwi') {
+        if (player.rack.length < RACK_MAX) player.rack.push(BLANK);
+        this.log.push(`${player.name} ate a kiwi ${FRUIT_EMOJI.kiwi}: a wildcard`);
       }
     }
     return collected;
@@ -319,6 +383,10 @@ export class Game {
         if (!formedCellKeys.has(Board.key(t.x, t.y))) {
           fail('every placed tile must be part of a word of two or more letters');
         }
+      }
+      // The first word of the game must cover the start cell.
+      if (boardWasEmpty && !formedCellKeys.has(Board.key(START_CELL.x, START_CELL.y))) {
+        fail('the first word must cover the start cell ★');
       }
       // ...and the play must connect to the existing board (unless it's empty).
       if (!boardWasEmpty) {
@@ -634,6 +702,7 @@ export class Game {
     game.lastPlayerId = data.lastPlayerId;
     game.players = data.players.map((p) => ({ ...p, rack: [...p.rack] }));
     for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
+    game.fruits.clear(); // replace the constructor's fresh scatter with the snapshot's
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
     game.log = [...(data.log ?? [])];
     return game;

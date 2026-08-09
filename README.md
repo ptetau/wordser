@@ -1,8 +1,8 @@
 # wordser
 
-N-player scrabble on an infinite plain. Words never run out of room, letters
-can be stolen, words can be rewritten under your opponents' feet, and every
-day crowns a winner.
+N-player scrabble on a looping 120×120 world. Letters can be stolen, words
+can be rewritten under your opponents' feet, bonus fruits dot the plain, and
+every day crowns a winner.
 
 ## Play it
 
@@ -20,9 +20,11 @@ Two ways to play:
   cheat their rack. (Locally `npm start` serves the API from memory; the
   deployed site stores games in Redis.)
 
-Tap a placed tile to steal or mutate its word. Drag to pan the infinite
-board; pinch or scroll to zoom; arrow keys pan and `+`/`-` zoom from the
-keyboard.
+Tap a placed tile to steal or mutate its word. Drag to pan; pinch or scroll
+to zoom. The arrow keys drive a board cursor (the viewport follows): type to
+start a word at the cursor, press Enter on a tile to steal/mutate it, and
+`+`/`-` zoom. **Add CPU player 🤖** gives local games a computer opponent
+that searches for real placements with the same rules engine.
 
 ```sh
 npm test           # engine + API test suite (node --test, no dependencies)
@@ -30,13 +32,15 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 ## The rules
 
-- **Infinite board.** No edges, no centre star. The first word can be played
-  anywhere; every later word must connect to what's on the board.
+- **A looping world.** The board is a 120×120 torus: walk off one edge and
+  you come back on the other, and words may wrap around the seam. The first
+  word must cover the ★ start cell at the origin (which sits on a
+  double-word star); every later word must connect to what's on the board.
 - **Classic premiums, tiled forever.** The premium squares are the actual
   classic scrabble layout — triple-word corners, double-word diagonal X's,
-  the triple/double-letter diamonds — tiled seamlessly across the plane
-  (the symmetric 15×15 board reduces to a 14×14 tile). A premium counts
-  only when the letter on it changed that move.
+  the triple/double-letter diamonds — stretched to double scale and tiled
+  seamlessly around the torus (period 30 divides the 120-cell world). A
+  premium counts only when the letter on it changed that move.
 - **Play after a friend.** You may only move after another player has moved —
   nobody plays twice in a row (waived while you're alone in the game).
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
@@ -53,12 +57,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Wildcard redefinition.** A blank on the board may be redefined to a
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.
-- **Bonus fruits.** Pac-man style, fruits appear on empty cells near the
-  action (most moves spawn one; at most five at a time). Cover one with a
-  newly placed letter to
-  eat it: 🍋 lemon feeds you two extra letters, 🌶️ chilli hands you a
-  high-scoring letter (J/Q/X/Z), 🍒 cherry lets you keep one letter from a
-  choice of seven. Eating a cherry's choice doesn't use your turn.
+- **Bonus fruits.** Pac-man style: a fresh world starts with a dozen fruits
+  scattered widely across it, and most moves spawn another near the action
+  (never bunched together, twelve at most). Cover one with a newly placed
+  letter to eat it: 🍋 lemon feeds you two extra letters, 🌶️ chilli hands
+  you a high-scoring letter (J/Q/X/Z), 🍒 cherry lets you keep one letter
+  from a choice of seven (choosing doesn't use your turn), 🍇 grape is
+  worth 10 bonus points, 🍌 banana deals you a completely fresh rack, and
+  🥝 kiwi hands you a wildcard.
 - **Daily stars.** Scores reset every day (UTC). The player(s) with the top
   score of the day get a permanent ★ by their name.
 

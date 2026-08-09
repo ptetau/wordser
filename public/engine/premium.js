@@ -1,13 +1,20 @@
 // Premium squares on the infinite plain.
 //
-// The classic scrabble board layout, tiled seamlessly forever. The standard
-// 15×15 board is mirror-symmetric about its centre lines, and its last row
-// and column repeat its first, so dropping them gives a 14×14 tile that
+// The classic scrabble board layout, tiled seamlessly forever and stretched
+// to double scale so the criss-cross motifs breathe. The standard 15×15
+// board is mirror-symmetric about its centre lines, and its last row and
+// column repeat its first, so dropping them gives a 14×14 tile that
 // reproduces the familiar pattern — triple-word corners, double-word
-// diagonal X's, the triple/double-letter diamonds — continuously across the
-// whole plane.
+// diagonal X's, the triple/double-letter diamonds. Each premium sits two
+// cells from its neighbours (SCALE = 2), which halves the density and
+// widens the whole lattice.
 
-export const PERIOD = 14;
+// TILE 15 (the full classic board) at double scale gives period 30, which
+// divides the 120-cell world evenly — the pattern loops seamlessly across
+// the torus edges.
+const SCALE = 2;
+const TILE = 15;
+export const PERIOD = TILE * SCALE;
 
 const mod = (n, m) => ((n % m) + m) % m;
 
@@ -22,12 +29,19 @@ const QUADRANT = {
 
 /**
  * Premium at integer cell (x, y).
+ *
+ * The tiling is offset so the origin — the start cell — sits on a board
+ * centre (the double-word star), just like the first move in scrabble.
+ *
  * @returns {'TW'|'DW'|'TL'|'DL'|null}
  */
 export function premiumAt(x, y) {
-  let u = mod(x, PERIOD);
-  let v = mod(y, PERIOD);
-  if (u > 7) u = PERIOD - u;
-  if (v > 7) v = PERIOD - v;
+  const px = mod(x, PERIOD);
+  const py = mod(y, PERIOD);
+  if (px % SCALE !== 0 || py % SCALE !== 0) return null;
+  let u = mod(px / SCALE + 7, TILE);
+  let v = mod(py / SCALE + 7, TILE);
+  if (u > 7) u = 14 - u;
+  if (v > 7) v = 14 - v;
   return QUADRANT[`${u},${v}`] ?? null;
 }

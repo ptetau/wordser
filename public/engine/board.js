@@ -1,11 +1,18 @@
-// Sparse infinite board. Cells are keyed by "x,y"; x grows right, y grows down.
+// Sparse board on a looping world. Cells are keyed by "x,y"; x grows right,
+// y grows down, and both axes wrap every WORLD cells — the plane is a
+// 120×120 torus, so walking off one edge brings you back on the other.
+// Callers may use any integer coordinates; they are wrapped canonically.
 //
 // A tile is { letter } for a normal tile, or { isBlank: true, as } for a
 // wildcard currently standing in for the letter `as`. Wildcards score 0 and
 // can later be redefined to a different letter if every word through them
 // stays real.
 
-const key = (x, y) => `${x},${y}`;
+export const WORLD = 120;
+
+export const wrapCoord = (n) => ((n % WORLD) + WORLD) % WORLD;
+
+const key = (x, y) => `${wrapCoord(x)},${wrapCoord(y)}`;
 
 export class Board {
   constructor() {
@@ -45,14 +52,15 @@ export class Board {
     const dy = dir === 'h' ? 0 : 1;
     let sx = x;
     let sy = y;
-    while (this.get(sx - dx, sy - dy)) {
+    // The world loops, so cap the scan at one full circuit (a solid ring).
+    for (let steps = 0; steps < WORLD && this.get(sx - dx, sy - dy); steps++) {
       sx -= dx;
       sy -= dy;
     }
     const cells = [];
     let cx = sx;
     let cy = sy;
-    for (let tile = this.get(cx, cy); tile; tile = this.get(cx, cy)) {
+    for (let tile = this.get(cx, cy); tile && cells.length < WORLD; tile = this.get(cx, cy)) {
       cells.push({ x: cx, y: cy, tile });
       cx += dx;
       cy += dy;
@@ -69,7 +77,7 @@ export class Board {
       for (const dir of ['h', 'v']) {
         const w = this.wordThrough(x, y, dir);
         if (!w || w.cells.length < 2) continue;
-        const id = `${dir}:${w.cells[0].x},${w.cells[0].y}`;
+        const id = `${dir}:${key(w.cells[0].x, w.cells[0].y)}`;
         if (seen.has(id)) continue;
         seen.add(id);
         words.push(w);

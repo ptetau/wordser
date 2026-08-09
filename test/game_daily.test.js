@@ -32,7 +32,7 @@ test('the day rolls over automatically with the clock', () => {
     now: () => nowMs,
   });
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  assert.equal(g.players[0].score, 15);
+  assert.equal(g.players[0].score, 10);
 
   nowMs += 24 * 60 * 60 * 1000;
   // New day: Ana may open it even though she played last, and yesterday's
@@ -40,5 +40,5 @@ test('the day rolls over automatically with the clock', () => {
   g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
   assert.equal(g.day, 2);
   assert.equal(g.players[0].stars, 1);
-  assert.equal(g.players[0].score, 7); // only today's "cats" points (s on DL) remain
+  assert.equal(g.players[0].score, 6); // only today's "cats" points remain
 });

@@ -1,6 +1,7 @@
-import { Game, GameError, FRUIT_EMOJI } from './engine/game.js';
+import { Game, GameError, FRUIT_EMOJI, START_CELL } from './engine/game.js';
+import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
-import { Board } from './engine/board.js';
+import { Board, WORLD, wrapCoord } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
@@ -26,6 +27,8 @@ let currentPlayer = null;
 let placement = null; // { sx, sy, dir, entries: [{x,y,letter,typed,existing,fromBlank,redefine}] }
 let mutating = null; // { x, y }
 let selected = null; // { x, y } for the actions panel
+let kbCursor = null; // keyboard cursor cell, moved with the arrow keys
+let cpuWordList = null; // lazy-built candidate words for CPU players
 
 const online = () => session !== null;
 
@@ -63,9 +66,10 @@ function render() {
       const sx = (x - cam.x) * c;
       const sy = (y - cam.y) * c;
       const p = premiumAt(x, y);
-      ctx.fillStyle = p ? PREMIUM_FILL[p] : x === 0 && y === 0 ? '#2c3140' : '#262b35';
+      const isStart = wrapCoord(x) === START_CELL.x && wrapCoord(y) === START_CELL.y;
+      ctx.fillStyle = p ? PREMIUM_FILL[p] : isStart ? '#2c3140' : '#262b35';
       ctx.fillRect(sx + 1, sy + 1, c - 2, c - 2);
-      if (p && c >= 30) {
+      if (p && c >= 30 && !isStart) {
         ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = `${Math.floor(c / 4)}px system-ui`;
         ctx.textAlign = 'center';
@@ -73,6 +77,24 @@ function render() {
         ctx.fillText(PREMIUM_TEXT[p], sx + c / 2, sy + c / 2);
       }
     }
+  }
+
+  // Seams of the looping 120×120 world.
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+  ctx.lineWidth = 1.5;
+  for (let x = x0; x <= x1; x++) {
+    if (wrapCoord(x) !== 0) continue;
+    ctx.beginPath();
+    ctx.moveTo((x - cam.x) * c, 0);
+    ctx.lineTo((x - cam.x) * c, h);
+    ctx.stroke();
+  }
+  for (let y = y0; y <= y1; y++) {
+    if (wrapCoord(y) !== 0) continue;
+    ctx.beginPath();
+    ctx.moveTo(0, (y - cam.y) * c);
+    ctx.lineTo(w, (y - cam.y) * c);
+    ctx.stroke();
   }
 
   const drawTile = (x, y, letter, { blank = false, pending = false, redefine = false } = {}) => {
@@ -99,19 +121,37 @@ function render() {
     ctx.fillText(String(v), sx + c - pad - 2, sy + c - pad - c * 0.12);
   };
 
-  for (const [k, type] of game.fruits) {
-    const [x, y] = k.split(',').map(Number);
-    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-    ctx.font = `${Math.floor(c * 0.62)}px system-ui`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(FRUIT_EMOJI[type] ?? '🍇', (x - cam.x) * c + c / 2, (y - cam.y) * c + c / 2 + c * 0.04);
-  }
+  const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';
 
-  for (const [k, tile] of game.board.cells) {
-    const [x, y] = k.split(',').map(Number);
-    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-    drawTile(x, y, Board.effective(tile), { blank: !!tile.isBlank });
+  // Tiles, fruits, and the start star — looked up per visible cell so the
+  // looping world repeats in every direction.
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      const tile = game.board.get(x, y);
+      if (tile) {
+        drawTile(x, y, Board.effective(tile), { blank: !!tile.isBlank });
+        continue;
+      }
+      const fruit = game.fruits.get(Board.key(x, y));
+      if (fruit) {
+        const fx = (x - cam.x) * c + c / 2;
+        const fy = (y - cam.y) * c + c / 2;
+        ctx.beginPath();
+        ctx.arc(fx, fy, c * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(242,211,119,0.22)';
+        ctx.fill();
+        ctx.font = `${Math.floor(c * 0.72)}px ${EMOJI_FONT}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(FRUIT_EMOJI[fruit] ?? '🍇', fx, fy + c * 0.05);
+      } else if (wrapCoord(x) === START_CELL.x && wrapCoord(y) === START_CELL.y) {
+        ctx.fillStyle = 'rgba(227,179,65,0.9)';
+        ctx.font = `${Math.floor(c * 0.55)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('★', (x - cam.x) * c + c / 2, (y - cam.y) * c + c / 2 + c * 0.02);
+      }
+    }
   }
 
   if (placement) {
@@ -136,6 +176,16 @@ function render() {
     ctx.strokeStyle = '#7fd4ff';
     ctx.lineWidth = 2.5;
     ctx.strokeRect(sx + 2, sy + 2, c - 4, c - 4);
+  }
+
+  if (kbCursor && !placement) {
+    const sx = (kbCursor.x - cam.x) * c;
+    const sy = (kbCursor.y - cam.y) * c;
+    ctx.strokeStyle = 'rgba(242,211,119,0.8)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(sx + 2, sy + 2, c - 4, c - 4);
+    ctx.setLineDash([]);
   }
 }
 
@@ -378,7 +428,15 @@ async function doMove(move, describe) {
     selected = null;
     status(describe(r), 'good');
     if (move.type !== 'choose' && game.players.length > 1) {
-      currentPlayer = (currentPlayer + 1) % game.players.length;
+      // Hand the seat to the next human; CPU seats play themselves.
+      for (let i = 1; i <= game.players.length; i++) {
+        const next = (currentPlayer + i) % game.players.length;
+        if (!game.players[next].isCpu) {
+          currentPlayer = next;
+          break;
+        }
+      }
+      setTimeout(runCpuTurns, 650);
     }
     refresh();
     return r;
@@ -440,6 +498,26 @@ function commitPlacement() {
 
 function fruitNote(r) {
   return r.fruits?.length ? ` — ate ${r.fruits.map((f) => FRUIT_EMOJI[f]).join(' ')}` : '';
+}
+
+function runCpuTurns() {
+  if (online()) return;
+  let acted = false;
+  for (const p of game.players) {
+    if (!p.isCpu) continue;
+    if (game.players.length > 1 && game.lastPlayerId === p.id) continue;
+    const r = takeCpuTurn(game, p.id, cpuWordList);
+    if (r) {
+      acted = true;
+      status(`${p.name} played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`, '');
+    } else if (game.lastPlayerId != null && !game.players[game.lastPlayerId].isCpu) {
+      // A stuck CPU passes so the friend rule can't deadlock its humans.
+      status(`${p.name} couldn't find a word and passes`, '');
+      game.lastPlayerId = null;
+      acted = true;
+    }
+  }
+  if (acted) refresh();
 }
 
 function showError(err) {
@@ -603,6 +681,7 @@ canvas.addEventListener('pointercancel', (e) => {
 
 function tapCell({ x, y }) {
   cancelModes();
+  kbCursor = { x, y };
   if (game.board.get(x, y)) {
     selected = { x, y };
   } else {
@@ -629,9 +708,24 @@ canvas.addEventListener(
   { passive: false },
 );
 
+const ARROWS = {
+  arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1],
+};
+
+/** Pan the camera the minimum needed to keep cell (x, y) comfortably visible. */
+function ensureVisible(x, y) {
+  const w = canvas.clientWidth / cam.cell;
+  const h = canvas.clientHeight / cam.cell;
+  if (x < cam.x + 1) cam.x = x - 1;
+  if (x + 1 > cam.x + w - 1) cam.x = x + 2 - w;
+  if (y < cam.y + 1) cam.y = y - 1;
+  if (y + 1 > cam.y + h - 1) cam.y = y + 2 - h;
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   const key = e.key.toLowerCase();
+  const arrow = ARROWS[key];
 
   if (mutating) {
     if (e.key === 'Escape') {
@@ -645,36 +739,72 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (!placement) {
-    // Keyboard board navigation outside of placement.
-    const pan = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[key];
-    if (pan) {
-      cam.x += pan[0];
-      cam.y += pan[1];
-      render();
-    } else if (key === '+' || key === '=') {
-      cam.cell = Math.min(72, cam.cell * 1.1);
-      render();
-    } else if (key === '-') {
-      cam.cell = Math.max(18, cam.cell * 0.9);
+  if (placement) {
+    if (arrow) {
+      // Move the whole word start; the viewport follows the cursor.
+      e.preventDefault();
+      const typed = placement.entries.map((en) => en.typed);
+      placement = {
+        sx: placement.sx + arrow[0],
+        sy: placement.sy + arrow[1],
+        dir: placement.dir,
+        entries: [],
+      };
+      for (const t of typed) if (!typeLetter(t, { silent: true })) break;
+      const cur = nextCell();
+      ensureVisible(cur.x, cur.y);
+      refresh();
+    } else if (e.key === 'Escape') {
+      placement = null;
+      refresh();
+    } else if (e.key === 'Enter') {
+      commitPlacement();
+    } else if (e.key === 'Backspace') {
+      placement.entries.pop();
+      refresh();
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      flipDirection();
+    } else if (/^[a-z]$/.test(key)) {
+      typeLetter(key);
+      const cur = nextCell();
+      ensureVisible(cur.x, cur.y);
       render();
     }
     return;
   }
 
-  if (e.key === 'Escape') {
-    placement = null;
-    refresh();
-  } else if (e.key === 'Enter') {
-    commitPlacement();
-  } else if (e.key === 'Backspace') {
-    placement.entries.pop();
-    refresh();
-  } else if (e.key === ' ') {
+  // No placement: the arrow keys drive a board cursor and the view follows.
+  if (arrow) {
     e.preventDefault();
-    flipDirection();
-  } else if (/^[a-z]$/.test(key)) {
-    typeLetter(key);
+    if (!kbCursor) {
+      kbCursor = {
+        x: Math.round(cam.x + canvas.clientWidth / cam.cell / 2),
+        y: Math.round(cam.y + canvas.clientHeight / cam.cell / 2),
+      };
+    } else {
+      kbCursor.x += arrow[0];
+      kbCursor.y += arrow[1];
+    }
+    ensureVisible(kbCursor.x, kbCursor.y);
+    render();
+  } else if (e.key === 'Enter' && kbCursor) {
+    if (game.board.get(kbCursor.x, kbCursor.y)) {
+      selected = { ...kbCursor };
+      refresh();
+    }
+  } else if (/^[a-z]$/.test(key) && kbCursor && !game.board.get(kbCursor.x, kbCursor.y)) {
+    if (requirePlayer()) {
+      selected = null;
+      placement = { sx: kbCursor.x, sy: kbCursor.y, dir: 'h', entries: [] };
+      typeLetter(key);
+    }
+  } else if (key === '+' || key === '=') {
+    cam.cell = Math.min(72, cam.cell * 1.1);
+    render();
+  } else if (key === '-') {
+    cam.cell = Math.max(18, cam.cell * 0.9);
+    render();
   }
 });
 
@@ -757,6 +887,18 @@ $('add-player-form').addEventListener('submit', (e) => {
   refresh();
 });
 
+$('add-cpu').addEventListener('click', () => {
+  if (online()) return;
+  cpuWordList ??= buildWordList(dictionary);
+  const n = game.players.filter((p) => p.isCpu).length + 1;
+  const p = game.addPlayer(`Robo ${n} 🤖`);
+  p.isCpu = true;
+  if (currentPlayer == null) currentPlayer = p.id;
+  status(`${p.name} joined — it plays whenever it may`, 'good');
+  if (game.players.length > 1) setTimeout(runCpuTurns, 400);
+  refresh();
+});
+
 $('end-day').addEventListener('click', () => {
   if (online()) return;
   const winners = game.startNewDay();
@@ -780,6 +922,7 @@ window.wordser = {
   get game() { return game; },
   set game(g) { game = g; },
   get session() { return session; },
+  get cursor() { return kbCursor; },
   refresh,
   cam,
 };

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { GameError, RACK_TARGET } from '../public/engine/game.js';
 import { Game } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
+import { mulberry32 } from '../public/engine/tiles.js';
 import { makeGame, tilesFor } from './helpers.js';
 
 test('a lemon feeds you two extra letters', () => {
@@ -47,6 +48,28 @@ test('a cherry offers seven letters; choosing keeps one without using a turn', (
   );
 });
 
+test('a grape is worth bonus points', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  g.fruits.set('1,0', 'grape');
+  const r = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.equal(g.players[0].score, r.points + 10);
+});
+
+test('a banana deals you a completely fresh rack', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  g.fruits.set('1,0', 'banana');
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.equal(g.players[0].rack.length, 7);
+  assert.match(g.log.join('\n'), /banana/);
+});
+
+test('a kiwi hands you a wildcard', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  g.fruits.set('2,0', 'kiwi');
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.ok(g.players[0].rack.includes('*'));
+});
+
 test('a longer steal can grab a fruit beyond the old word', () => {
   const g = makeGame(['cat', 'cart', 'carts'], {
     racks: [
@@ -61,7 +84,7 @@ test('a longer steal can grab a fruit beyond the old word', () => {
   assert.equal(g.fruits.has('4,0'), false);
 });
 
-test('fruits spawn on empty cells near the board, capped at five', () => {
+test('fruits spawn on empty cells near the board, capped and spread out', () => {
   const g = makeGame(['cat'], {
     players: ['Solo'],
     racks: [['c', 'a', 't', 'e', 'e', 'e', 'e']],
@@ -69,11 +92,13 @@ test('fruits spawn on empty cells near the board, capped at five', () => {
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   for (let i = 0; i < 40; i++) g.spawnFruit(1);
   assert.ok(g.fruits.size >= 1);
-  assert.ok(g.fruits.size <= 5);
+  assert.ok(g.fruits.size <= 12);
+  const toroidal = (a, b) => Math.min(Math.abs(a - b), 120 - Math.abs(a - b));
   for (const k of g.fruits.keys()) {
     const [x, y] = k.split(',').map(Number);
     assert.equal(g.board.get(x, y), null);
-    assert.ok(x >= -4 && x <= 6 && y >= -4 && y <= 4, `fruit at ${k} is near the word`);
+    const near = [0, 1, 2].some((ax) => toroidal(x, ax) <= 4 && toroidal(y, 0) <= 4);
+    assert.ok(near, `fruit at ${k} is near the word`);
   }
 });
 
@@ -88,4 +113,19 @@ test('fruits and pending choices survive serialization', () => {
   assert.deepEqual(g2.players[0].pendingChoice, ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
   const { letter } = g2.choosePendingLetter({ playerId: 0, index: 0 });
   assert.equal(letter, 'a');
+});
+
+test('a fresh world is seeded with well-spaced fruits', () => {
+  const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(9) });
+  assert.equal(g.fruits.size, 12);
+  assert.equal(g.fruits.has('0,0'), false);
+  const spots = [...g.fruits.keys()].map((k) => k.split(',').map(Number));
+  for (let i = 0; i < spots.length; i++) {
+    for (let j = i + 1; j < spots.length; j++) {
+      const dx = Math.abs(spots[i][0] - spots[j][0]);
+      const dy = Math.abs(spots[i][1] - spots[j][1]);
+      const d = Math.max(Math.min(dx, 120 - dx), Math.min(dy, 120 - dy));
+      assert.ok(d >= 14, `fruits ${i} and ${j} bunch at distance ${d}`);
+    }
+  }
 });

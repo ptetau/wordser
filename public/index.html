@@ -13,7 +13,7 @@
   <aside id="panel">
     <header id="masthead">
       <h1>wordser</h1>
-      <p class="tagline">n-player scrabble on an infinite plain</p>
+      <p class="tagline">n-player scrabble on a looping world</p>
     </header>
 
     <section id="online-section">
@@ -36,6 +36,7 @@
         <input id="player-name" placeholder="player name" maxlength="20" autocomplete="off" />
         <button type="submit">Add player</button>
       </form>
+      <button id="add-cpu" style="width:100%;margin-top:6px">Add CPU player 🤖</button>
     </section>
 
     <section id="rack-section">
@@ -62,12 +63,14 @@
     <details id="help-section">
       <summary>How to play</summary>
       <ul>
-        <li>Tap an empty cell, then tap rack tiles (or type) to spell a word across existing letters. <b>✓/Enter</b> plays it, <b>→↓/Space</b> flips direction, <b>⌫/Backspace</b> undoes, <b>✕/Esc</b> cancels.</li>
+        <li>The first word must cover the <b>★ start cell</b>. Tap an empty cell, then tap rack tiles (or type) to spell a word across existing letters. <b>✓/Enter</b> plays it, <b>→↓/Space</b> flips direction, <b>⌫/Backspace</b> undoes, <b>✕/Esc</b> cancels.</li>
+        <li><b>Arrow keys</b> move a board cursor (the view follows): type to start a word there, or press <b>Enter</b> on a tile to steal/mutate it. Arrows also slide a word you're spelling.</li>
+        <li><b>Add CPU player 🤖</b> for a local opponent — it moves after you do.</li>
         <li>Spelling across a <i>wildcard</i> with a different letter redefines it — every word it belongs to must stay real.</li>
         <li>Tap a placed tile to <b>mutate</b> its letter or <b>steal</b> its word: replace the word with your own; leftover letters join your rack (12 max, rest discarded).</li>
-        <li>You can only play after a friend has played. Drag to pan, pinch or scroll to zoom.</li>
+        <li>The world is a 120×120 loop — walk off one edge and you come back on the other (words can wrap too). You can only play after a friend has played. Drag to pan, pinch or scroll to zoom.</li>
         <li>Premiums recur forever: <span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span>. They only count on letters changed that move.</li>
-        <li>Bonus fruits appear near the action — cover one with a letter to eat it: 🍋 two extra letters, 🌶️ a high-scoring letter, 🍒 pick one letter from a choice of seven.</li>
+        <li>Bonus fruits appear near the action — cover one with a letter to eat it: 🍋 two extra letters, 🌶️ a high-scoring letter, 🍒 pick one of seven letters, 🍇 +10 points, 🍌 a fresh rack, 🥝 a wildcard.</li>
         <li>Scores reset daily; the day's winner earns a ★.</li>
       </ul>
     </details>

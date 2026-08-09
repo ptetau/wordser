@@ -37,8 +37,8 @@ test('create, join, and play a move over the wire', async () => {
     },
   });
   assert.equal(move.status, 200);
-  assert.equal(move.data.result.points, 15);
-  assert.equal(move.data.game.players[0].score, 15);
+  assert.equal(move.data.result.points, 10);
+  assert.equal(move.data.game.players[0].score, 10);
 });
 
 test('states are personalized: own rack visible, others masked, no tokens', async () => {

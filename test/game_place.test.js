@@ -6,11 +6,20 @@ import { makeGame, tilesFor } from './helpers.js';
 test('first word scores with criss-cross premiums', () => {
   const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
   const r = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  // c on TW at (0,0), no other premiums on the row: (3+1+1) * 3
-  assert.equal(r.points, 15);
-  assert.equal(g.players[0].score, 15);
+  // c on the DW start star at (0,0): (3+1+1) * 2
+  assert.equal(r.points, 10);
+  assert.equal(g.players[0].score, 10);
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cat');
   assert.equal(g.players[0].rack.length, 7); // refilled
+});
+
+test('the first word must cover the start cell', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  assert.throws(() => g.place({ playerId: 0, tiles: tilesFor('cat', 3, 3) }), /start cell/);
+  assert.equal(g.board.isEmpty(), true);
+  // Covering the origin anywhere in the word is enough.
+  g.place({ playerId: 0, tiles: tilesFor('cat', -2, 0) });
+  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cat');
 });
 
 test('you can only play after a friend has played', () => {
@@ -86,6 +95,6 @@ test('placing seven or more tiles earns the bingo bonus', () => {
     racks: [['a', 'b', 'c', 'd', 'e', 'f', 'g'], []],
   });
   const r = g.place({ playerId: 0, tiles: tilesFor('abcdefg', 0, 0) });
-  // TW at origin, DL under the d at (3,0): (1+3+3+4+1+4+2) * 3, plus 50 bingo.
-  assert.equal(r.points, 18 * 3 + 50);
+  // Only the DW start star at the origin: (1+3+3+2+1+4+2) * 2, plus 50 bingo.
+  assert.equal(r.points, 16 * 2 + 50);
 });

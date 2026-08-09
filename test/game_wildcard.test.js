@@ -17,8 +17,8 @@ function placeCatWithBlank(g) {
 test('a blank plays as any letter and scores zero', () => {
   const g = makeGame(['cat'], { racks: [['c', '*', 't', 'e', 'e', 'e', 'e'], []] });
   placeCatWithBlank(g);
-  // c on TW, blank 0, t plain: (3+0+1) * 3
-  assert.equal(g.players[0].score, 12);
+  // c on the DW start star, blank 0, t plain: (3+0+1) * 2
+  assert.equal(g.players[0].score, 8);
   assert.equal(g.board.get(1, 0).isBlank, true);
 });
 
@@ -40,8 +40,8 @@ test('a wildcard can be redefined to fit your word if all words stay real', () =
   });
   assert.deepEqual(r.words, ['dog']);
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cot');
-  // d at (1,-1) and g at (1,1) both land on DW diagonals: (2+0+2) * 4
-  assert.equal(r.points, 16);
+  // no premiums under d or g (odd cells are always plain): 2+0+2
+  assert.equal(r.points, 4);
 });
 
 test('a redefinition that breaks an existing word is rejected', () => {
