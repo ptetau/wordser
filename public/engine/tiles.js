@@ -1,6 +1,7 @@
 // Tile values and letter distribution (standard English Scrabble set).
-// The board is infinite and play never ends, so the bag is bottomless: draws
-// are weighted samples from the standard distribution.
+// The bag holds exactly one standard 100-tile set, drawn without
+// replacement so racks follow the real scrabble letter frequencies; play
+// never ends, so the bag refills with a fresh set whenever it empties.
 
 export const BLANK = '*';
 
@@ -28,27 +29,22 @@ export function mulberry32(seed) {
   };
 }
 
-const CUMULATIVE = (() => {
-  const entries = [];
-  let total = 0;
-  for (const [letter, count] of Object.entries(DISTRIBUTION)) {
-    total += count;
-    entries.push([letter, total]);
-  }
-  return { entries, total };
-})();
-
 export class Bag {
   constructor(rng = Math.random) {
     this.rng = rng;
+    this.pool = [];
   }
 
-  /** Draw one tile letter ('a'-'z' or BLANK). */
-  draw() {
-    const r = this.rng() * CUMULATIVE.total;
-    for (const [letter, cum] of CUMULATIVE.entries) {
-      if (r < cum) return letter;
+  #refill() {
+    for (const [letter, count] of Object.entries(DISTRIBUTION)) {
+      for (let i = 0; i < count; i++) this.pool.push(letter);
     }
-    return CUMULATIVE.entries[CUMULATIVE.entries.length - 1][0];
+  }
+
+  /** Draw one tile letter ('a'-'z' or BLANK), without replacement. */
+  draw() {
+    if (this.pool.length === 0) this.#refill();
+    const i = Math.floor(this.rng() * this.pool.length);
+    return this.pool.splice(i, 1)[0];
   }
 }

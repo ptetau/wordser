@@ -52,8 +52,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Play after a friend.** You may only move after another player has moved —
   nobody plays twice in a row (waived while you're alone in the game).
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
-  words must be real. Racks refill to 7 tiles from a bottomless bag; placing
-  7+ tiles earns a 50-point bingo.
+  words must be real. Racks refill to 7 tiles from a real scrabble bag —
+  one standard 100-tile set drawn without replacement, refilled with a
+  fresh set when it empties. Placing 7+ tiles earns a 50-point bingo.
 - **Stealing.** Replace any word on the board with your own word laid along
   the same line (it may be shorter or longer, and must overlap the word it
   replaces; every resulting word must be real). Old letters you reuse stay on
@@ -104,11 +105,12 @@ with zero configuration) and `api/` deploys as a Vercel serverless function.
 ### Online play storage
 
 The API stores each game as one JSON document in Redis, written with a
-compare-and-set on a sequence number. On Vercel, add the **Upstash for
-Redis** integration (Storage tab) — the function picks up the
-`KV_REST_API_URL`/`KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_*`) env vars
-automatically. Without them the endpoint answers 501 and the site still
-works as a hot-seat game. Games expire after 90 days of inactivity.
+compare-and-set on a sequence number. Any of these credentials work:
+`KV_REST_API_URL`+`KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_*` (REST), or
+a plain `REDIS_URL` connection string (spoken over TCP/TLS by the
+dependency-free client in `api/resp.js`). Without credentials the store is
+in-memory — fine locally, but games would vanish on a serverless runtime.
+Games are stored with no TTL: they stay alive forever.
 Clients poll every 3 seconds; the "you can only play after a friend" rule
 keeps a polling cadence perfectly adequate.
 

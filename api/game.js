@@ -10,6 +10,7 @@
 import { Game, GameError } from '../public/engine/game.js';
 import { loadBundledDictionary } from '../public/engine/dictionary.js';
 import { buildWordList, takeCpuTurn } from '../public/cpu.js';
+import { RespClient } from './resp.js';
 
 const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
@@ -35,21 +36,35 @@ function runCpuTurns(game, wordList) {
 
 // ---------------------------------------------------------------- storage
 
-/** Redis-backed store via the Upstash REST API; null when not configured. */
+/**
+ * Redis-backed store; null when no credentials are configured. Speaks the
+ * Upstash REST API when those vars exist, otherwise plain RESP over TCP/TLS
+ * for a REDIS_URL connection string.
+ */
 export function envStore(env = process.env) {
-  const url = env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL;
-  const token = env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  const call = async (cmd) => {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(cmd),
-    });
-    const j = await r.json();
-    if (j.error) throw new Error(`redis: ${j.error}`);
-    return j.result;
-  };
+  const restUrl = env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL;
+  const restToken = env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN;
+  let call;
+  let source;
+  if (restUrl && restToken) {
+    source = 'rest';
+    call = async (cmd) => {
+      const r = await fetch(restUrl, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${restToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(cmd),
+      });
+      const j = await r.json();
+      if (j.error) throw new Error(`redis: ${j.error}`);
+      return j.result;
+    };
+  } else if (env.REDIS_URL) {
+    source = 'tcp';
+    const client = new RespClient(env.REDIS_URL);
+    call = (cmd) => client.cmd(cmd);
+  } else {
+    return null;
+  }
   const CAS = `local cur = redis.call('GET', KEYS[1])
 if cur then
   local c = cjson.decode(cur)
@@ -65,7 +80,7 @@ return 'OK'`;
     /** Read-only store health probe (no secrets). */
     async diag(key) {
       return {
-        envSource: env.KV_REST_API_URL ? 'KV_REST_API_*' : 'UPSTASH_REDIS_REST_*',
+        envSource: source,
         exists: await call(['EXISTS', key]),
         ttl: await call(['TTL', key]),
         dbsize: await call(['DBSIZE']),

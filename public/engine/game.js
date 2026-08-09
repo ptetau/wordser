@@ -715,6 +715,7 @@ export class Game {
       }),
       lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
       startCell: { ...this.startCell },
+      bag: [...this.bag.pool].sort().join(''),
       log: [...this.log],
     };
   }
@@ -731,6 +732,7 @@ export class Game {
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
     game.lastMove = data.lastMove ?? null;
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
+    game.bag.pool = data.bag ? [...data.bag] : [];
     game.log = [...(data.log ?? [])];
     return game;
   }
