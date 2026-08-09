@@ -10,12 +10,22 @@ day crowns a winner.
 npm start          # then open http://localhost:8080/
 ```
 
-Hot-seat multiplayer: add a player per friend, click an empty cell, type a
-word, press Enter. Click a placed tile to steal or mutate its word. Drag to
-pan the infinite board, scroll to zoom.
+Two ways to play:
+
+- **Hot-seat**: add a player per friend on one screen. Tap an empty cell,
+  spell a word by tapping rack tiles (or typing), hit ✓/Enter.
+- **Over the internet**: press *Create online game* and share the link.
+  Friends open it, pick a name, and join from their own phones or laptops.
+  The server validates every move with the same rules engine, so nobody can
+  cheat their rack. (Locally `npm start` serves the API from memory; the
+  deployed site stores games in Redis.)
+
+Tap a placed tile to steal or mutate its word. Drag to pan the infinite
+board; pinch or scroll to zoom; arrow keys pan and `+`/`-` zoom from the
+keyboard.
 
 ```sh
-npm test           # engine test suite (node --test, no dependencies)
+npm test           # engine + API test suite (node --test, no dependencies)
 ```
 
 ## The rules
@@ -23,9 +33,10 @@ npm test           # engine test suite (node --test, no dependencies)
 - **Infinite board.** No edges, no centre star. The first word can be played
   anywhere; every later word must connect to what's on the board.
 - **Criss-cross premiums.** Double/triple letter and word squares recur
-  forever in a diagonal criss-cross lattice (period 8 in both directions).
-  Word premiums dot one family of diagonals, letter premiums the family in
-  between. A premium counts only when the letter on it changed that move.
+  forever in a sparse diagonal criss-cross lattice (period 12 in both
+  directions). Word premiums dot one family of diagonals, letter premiums
+  the family in between. A premium counts only when the letter on it
+  changed that move.
 - **Play after a friend.** You may only move after another player has moved —
   nobody plays twice in a row (waived while you're alone in the game).
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
@@ -58,14 +69,26 @@ can be plugged in by deployments holding a licence — see
 
 ```
 public/engine/   game rules: board, premiums, tiles, dictionary, moves, scoring
-public/          canvas UI for hot-seat play (no build step, plain ES modules)
+public/          canvas UI, touch + keyboard friendly (no build step, ES modules)
 public/data/     bundled word list
+api/game.js      online play: serverless endpoint running the same engine
 test/            node:test suite
-server.js        tiny static server for local play
+server.js        local server: static files + the API against an in-memory store
 ```
 
-The `public/` directory is a self-contained static site, so it deploys
-anywhere static files go (Vercel picks it up with zero configuration).
+The `public/` directory is a self-contained static site (Vercel serves it
+with zero configuration) and `api/` deploys as a Vercel serverless function.
+
+### Online play storage
+
+The API stores each game as one JSON document in Redis, written with a
+compare-and-set on a sequence number. On Vercel, add the **Upstash for
+Redis** integration (Storage tab) — the function picks up the
+`KV_REST_API_URL`/`KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_*`) env vars
+automatically. Without them the endpoint answers 501 and the site still
+works as a hot-seat game. Games expire after 90 days of inactivity.
+Clients poll every 3 seconds; the "you can only play after a friend" rule
+keeps a polling cadence perfectly adequate.
 
 The engine is UI-agnostic and deterministic (injectable RNG and clock), so a
 networked server for real n-player play can sit on top of `Game` without

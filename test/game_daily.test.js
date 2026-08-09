@@ -40,5 +40,5 @@ test('the day rolls over automatically with the clock', () => {
   g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
   assert.equal(g.day, 2);
   assert.equal(g.players[0].stars, 1);
-  assert.equal(g.players[0].score, 6); // only today's "cats" points remain
+  assert.equal(g.players[0].score, 7); // only today's "cats" points (s on DL) remain
 });

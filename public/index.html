@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>wordser — infinite scrabble</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔠</text></svg>" />
 <link rel="stylesheet" href="./style.css" />
@@ -11,45 +11,62 @@
 <main>
   <canvas id="board"></canvas>
   <aside id="panel">
-    <h1>wordser</h1>
-    <p class="tagline">n-player scrabble on an infinite plain</p>
+    <header id="masthead">
+      <h1>wordser</h1>
+      <p class="tagline">n-player scrabble on an infinite plain</p>
+    </header>
 
-    <section id="setup">
+    <section id="online-section">
+      <h2>Online</h2>
+      <div id="online-status" class="muted">Hot-seat mode: everyone shares this screen.</div>
+      <div id="online-controls">
+        <button id="create-online">Create online game</button>
+      </div>
+      <div id="join-controls" hidden>
+        <button id="join-online">Join this game</button>
+      </div>
+      <div id="share" hidden>
+        <input id="share-link" readonly />
+        <button id="copy-link">Copy</button>
+      </div>
+    </section>
+
+    <section id="setup-section">
       <form id="add-player-form">
         <input id="player-name" placeholder="player name" maxlength="20" autocomplete="off" />
         <button type="submit">Add player</button>
       </form>
     </section>
 
-    <section>
+    <section id="rack-section">
+      <h2>Rack <span id="rack-hint" class="muted"></span></h2>
+      <div id="rack"></div>
+    </section>
+
+    <section id="actions-section">
+      <h2>Actions</h2>
+      <div id="cell-actions" class="muted">Tap an empty cell to start a word.</div>
+      <button id="end-day">End the day ★</button>
+    </section>
+
+    <section id="players-section">
       <h2>Players</h2>
       <div id="players"></div>
     </section>
 
-    <section>
-      <h2>Rack</h2>
-      <div id="rack"></div>
-    </section>
-
-    <section id="actions">
-      <h2>Actions</h2>
-      <div id="cell-actions" class="muted">Click a cell to act.</div>
-      <button id="end-day">End the day ★</button>
-    </section>
-
-    <section>
+    <section id="log-section">
       <h2>Log</h2>
       <div id="log"></div>
     </section>
 
-    <details>
+    <details id="help-section">
       <summary>How to play</summary>
       <ul>
-        <li>Click an empty cell, type a word, <b>Enter</b> to play. <b>Space</b> flips direction, <b>Esc</b> cancels, <b>Backspace</b> undoes.</li>
-        <li>Typing across an existing letter reuses it; typing a different letter across a <i>wildcard</i> redefines it (all words must stay real).</li>
-        <li>Click a placed tile to <b>mutate</b> its letter or <b>steal</b> its word — replace the word with a real word of yours; leftovers join your rack (12 max, rest discarded).</li>
-        <li>You can only play after a friend has played. Drag to pan, wheel to zoom.</li>
-        <li>Premiums recur forever: <span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span></li>
+        <li>Tap an empty cell, then tap rack tiles (or type) to spell a word across existing letters. <b>✓/Enter</b> plays it, <b>→↓/Space</b> flips direction, <b>⌫/Backspace</b> undoes, <b>✕/Esc</b> cancels.</li>
+        <li>Spelling across a <i>wildcard</i> with a different letter redefines it — every word it belongs to must stay real.</li>
+        <li>Tap a placed tile to <b>mutate</b> its letter or <b>steal</b> its word: replace the word with your own; leftover letters join your rack (12 max, rest discarded).</li>
+        <li>You can only play after a friend has played. Drag to pan, pinch or scroll to zoom.</li>
+        <li>Premiums recur forever: <span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span>. They only count on letters changed that move.</li>
         <li>Scores reset daily; the day's winner earns a ★.</li>
       </ul>
     </details>

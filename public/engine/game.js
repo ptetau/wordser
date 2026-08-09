@@ -101,8 +101,17 @@ export class Game {
     return winners;
   }
 
+  /** Roll the day over if the clock has moved past it. Returns true if it did. */
+  rolloverIfNeeded() {
+    if (this.#dateKey() !== this.dateKey) {
+      this.startNewDay();
+      return true;
+    }
+    return false;
+  }
+
   #maybeRollover() {
-    if (this.#dateKey() !== this.dateKey) this.startNewDay();
+    this.rolloverIfNeeded();
   }
 
   #checkWordsThrough(x, y) {
@@ -493,5 +502,46 @@ export class Game {
       this.board.set(x, y, old);
       throw err;
     }
+  }
+
+  /** Dispatch a move described as plain data (used by the network server). */
+  apply(move) {
+    switch (move?.type) {
+      case 'place':
+        return this.place(move);
+      case 'steal':
+        return this.stealReplace(move);
+      case 'mutate':
+        return this.mutate(move);
+      default:
+        fail(`unknown move type: ${move?.type}`);
+    }
+  }
+
+  /** Plain-data snapshot of the full game state. */
+  toJSON() {
+    return {
+      day: this.day,
+      dateKey: this.dateKey,
+      lastPlayerId: this.lastPlayerId,
+      players: this.players.map((p) => ({ ...p, rack: [...p.rack] })),
+      cells: [...this.board.cells.entries()].map(([k, tile]) => {
+        const [x, y] = k.split(',').map(Number);
+        return { x, y, ...tile };
+      }),
+      log: [...this.log],
+    };
+  }
+
+  /** Rebuild a game from a toJSON() snapshot. */
+  static fromJSON(data, { dictionary, rng, now } = {}) {
+    const game = new Game({ dictionary, rng, now });
+    game.day = data.day;
+    game.dateKey = data.dateKey;
+    game.lastPlayerId = data.lastPlayerId;
+    game.players = data.players.map((p) => ({ ...p, rack: [...p.rack] }));
+    for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
+    game.log = [...(data.log ?? [])];
+    return game;
   }
 }
