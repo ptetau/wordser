@@ -14,4 +14,4 @@ export const THEMES = {
   scriptorium: () => import('./scriptorium.js'),
   seaside: () => import('./seaside.js'),
 };
-export const DEFAULT_THEME = 'midnight';
+export const DEFAULT_THEME = 'parlour';

@@ -81,7 +81,9 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
       if (attempts >= MAX_ATTEMPTS) break;
       const tiles = formable(w, rack);
       if (!tiles) continue;
-      const r = tryPlace(tiles.map((t, i) => ({ x: i, y: 0, ...t })));
+      const r = tryPlace(
+        tiles.map((t, i) => ({ x: game.startCell.x + i, y: game.startCell.y, ...t })),
+      );
       if (r) return r;
     }
     return null;

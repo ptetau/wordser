@@ -1,8 +1,8 @@
 # wordser
 
-N-player scrabble on a looping 120×120 world of octagonal cells. Letters
-can be stolen, words can be rewritten under your opponents' feet, bonus
-fruits dot the plain, and every day crowns a winner.
+N-player scrabble on a looping 120×120 world. Letters can be stolen, words
+can be rewritten under your opponents' feet, bonus fruits dot the plain,
+and every day crowns a winner.
 
 ## Play it
 
@@ -26,8 +26,12 @@ along the line), and mutations pick from a letter grid. The ✓ button shows
 the points a play will score before you commit. Drag to pan; pinch or
 scroll to zoom. The arrow keys drive a board cursor (the viewport follows):
 type to start a word at the cursor, press Enter on a tile to steal/mutate
-it, and `+`/`-` zoom. **Add CPU player 🤖** gives local games a computer
+it, and `+`/`-` zoom. Drag rack tiles to rearrange them (or ⇄ shuffle). Your name
+is remembered between visits, and a fresh game starts with the cursor
+already on the ★. **Add CPU player 🤖** gives local games a computer
 opponent that searches for real placements with the same rules engine.
+Four looks are available from the Theme menu (Parlour is the default);
+themes live in `public/themes/`.
 
 ```sh
 npm test           # engine + API test suite (node --test, no dependencies)
@@ -35,12 +39,10 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 ## The rules
 
-- **A looping world.** The board is a 120×120 torus of octagons (the
-  truncated-square tiling — little diamonds fill the corners): walk off one
-  edge and
+- **A looping world.** The board is a 120×120 torus: walk off one edge and
   you come back on the other, and words may wrap around the seam. The first
-  word must cover the ★ start cell at the origin (which sits on a
-  double-word star); every later word must connect to what's on the board.
+  word must cover the ★ start cell (always on a double-word star); every
+  later word must connect to what's on the board.
 - **Classic premiums, tiled forever.** The premium squares are the actual
   classic scrabble layout — triple-word corners, double-word diagonal X's,
   the triple/double-letter diamonds — stretched to double scale and tiled
@@ -70,8 +72,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
   from a choice of seven (choosing doesn't use your turn), 🍇 grape is
   worth 10 bonus points, 🍌 banana deals you a completely fresh rack, and
   🥝 kiwi hands you a wildcard.
-- **Daily stars.** Scores reset every day (UTC). The player(s) with the top
-  score of the day get a permanent ★ by their name.
+- **Daily stars.** Scores reset every day (UTC), everyone is dealt a fresh
+  rack, and the ★ start cell wanders to a different double-word star. The
+  player(s) with the top score of the day get a permanent ★ by their name.
 
 ## Dictionary
 

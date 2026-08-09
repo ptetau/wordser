@@ -159,3 +159,5 @@ details li { margin: 6px 0; }
   .tile.small { width: 40px; height: 44px; font-size: 17px; }
   .place-controls button { min-height: 44px; }
 }
+
+.tile.dragging { opacity: 0.75; z-index: 6; position: relative; pointer-events: none; }

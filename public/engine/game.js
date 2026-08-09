@@ -17,15 +17,16 @@
 //   - Scores reset every day; each day's winner(s) get a star by their name.
 
 import { Board, WORLD, wrapCoord, DIRS, DIR_NAMES } from './board.js';
-import { premiumAt } from './premium.js';
+import { premiumAt, PERIOD } from './premium.js';
 import { LETTER_VALUES, BLANK, Bag } from './tiles.js';
 
 export const RACK_TARGET = 7;
 export const RACK_MAX = 12;
 export const BINGO_BONUS = 50;
 
-// The first word of a game must cover the start cell at the origin, which
-// sits on a double-word star of the premium tiling.
+// The first word of a game must cover the start cell, which always sits on
+// a double-word star of the premium tiling. It begins at the origin and
+// wanders to a different star every new day.
 export const START_CELL = { x: 0, y: 0 };
 
 // Bonus fruits appear on empty cells near the action, pac-man style. Cover
@@ -76,6 +77,7 @@ export class Game {
     this.fruits = new Map(); // "x,y" -> fruit type, always on empty cells
     this.bag = new Bag(rng);
     this.lastMove = null; // { playerId, keys } of the most recent board change
+    this.startCell = { ...START_CELL };
     this.#seedFruits();
     this.players = [];
     this.lastPlayerId = null;
@@ -120,7 +122,23 @@ export class Game {
     } else {
       this.log.push(`day ${this.day} ends with no winner`);
     }
-    for (const p of this.players) p.score = 0;
+    for (const p of this.players) {
+      p.score = 0;
+      // A new day deals everyone a completely fresh rack.
+      p.rack = [];
+      delete p.pendingChoice;
+      this.#refill(p);
+    }
+    // The start star wanders to a different double-word star.
+    const stars = [];
+    for (let x = 0; x < WORLD; x += PERIOD) {
+      for (let y = 0; y < WORLD; y += PERIOD) {
+        if (x !== this.startCell.x || y !== this.startCell.y) stars.push([x, y]);
+      }
+    }
+    const [nx, ny] = stars[Math.floor(this.bag.rng() * stars.length)];
+    this.startCell = { x: nx, y: ny };
+    this.log.push(`the start star ★ moved and everyone drew a fresh rack`);
     this.day += 1;
     this.lastPlayerId = null;
     this.dateKey = this.#dateKey();
@@ -207,7 +225,7 @@ export class Game {
     for (let tries = 0; this.fruits.size < INITIAL_FRUITS && tries < 400; tries++) {
       const x = Math.floor(this.bag.rng() * WORLD);
       const y = Math.floor(this.bag.rng() * WORLD);
-      if (x === START_CELL.x && y === START_CELL.y) continue;
+      if (x === this.startCell.x && y === this.startCell.y) continue;
       if (this.#fruitDistance(x, y) < INITIAL_SPACING) continue;
       this.fruits.set(Board.key(x, y), this.#rollFruitType());
     }
@@ -385,7 +403,7 @@ export class Game {
         }
       }
       // The first word of the game must cover the start cell.
-      if (boardWasEmpty && !formedCellKeys.has(Board.key(START_CELL.x, START_CELL.y))) {
+      if (boardWasEmpty && !formedCellKeys.has(Board.key(this.startCell.x, this.startCell.y))) {
         fail('the first word must cover the start cell ★');
       }
       // ...and the play must connect to the existing board (unless it's empty).
@@ -696,6 +714,7 @@ export class Game {
         return { x, y, type };
       }),
       lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
+      startCell: { ...this.startCell },
       log: [...this.log],
     };
   }
@@ -711,6 +730,7 @@ export class Game {
     game.fruits.clear(); // replace the constructor's fresh scatter with the snapshot's
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
     game.lastMove = data.lastMove ?? null;
+    game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
     game.log = [...(data.log ?? [])];
     return game;
   }

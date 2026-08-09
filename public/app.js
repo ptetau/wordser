@@ -39,6 +39,19 @@ let pickingBlank = null; // 'placement' | 'mutate': choosing a letter for a blan
 
 const online = () => session !== null;
 
+const savedName = (() => {
+  try {
+    return localStorage.getItem('wordser:name') ?? '';
+  } catch {
+    return '';
+  }
+})();
+function rememberName(name) {
+  try {
+    localStorage.setItem('wordser:name', name);
+  } catch {}
+}
+
 // ---------------------------------------------------------------- rendering
 // cam.x/cam.y are the world-pixel coordinates of the screen's top-left
 // corner; cam.cell is the hex size (centre to corner) in pixels.
@@ -90,19 +103,10 @@ function hexCenter(x, y) {
   return [x * cam.cell + cam.cell / 2 - cam.x, y * cam.cell + cam.cell / 2 - cam.y];
 }
 
-/** A regular-ish octagon inscribed in the square of half-width a. */
+/** A rounded square of half-width a centred at (cx, cy). */
 function hexPath(cx, cy, a) {
-  const k = a * 0.586;
   ctx.beginPath();
-  ctx.moveTo(cx - a + k, cy - a);
-  ctx.lineTo(cx + a - k, cy - a);
-  ctx.lineTo(cx + a, cy - a + k);
-  ctx.lineTo(cx + a, cy + a - k);
-  ctx.lineTo(cx + a - k, cy + a);
-  ctx.lineTo(cx - a + k, cy + a);
-  ctx.lineTo(cx - a, cy + a - k);
-  ctx.lineTo(cx - a, cy - a + k);
-  ctx.closePath();
+  ctx.roundRect(cx - a, cy - a, a * 2, a * 2, a * 0.22);
 }
 
 let camCentered = false;
@@ -209,35 +213,12 @@ function render() {
 
   const lm = game.lastMove && !placement ? new Set(game.lastMove.keys) : null;
 
-  // The little squares of the truncated-square tiling, purely decorative.
-  {
-    const k = c * 0.5 * 0.586 * 0.82;
-    ctx.fillStyle = T().gapFill ?? T().seamFill;
-    const x0 = Math.floor(cam.x / c) - 1;
-    const x1 = Math.ceil((cam.x + w) / c) + 1;
-    const y0 = Math.floor(cam.y / c) - 1;
-    const y1 = Math.ceil((cam.y + h) / c) + 1;
-    for (let x = x0; x <= x1; x++) {
-      for (let y = y0; y <= y1; y++) {
-        const vx = x * c - cam.x;
-        const vy = y * c - cam.y;
-        ctx.beginPath();
-        ctx.moveTo(vx, vy - k);
-        ctx.lineTo(vx + k, vy);
-        ctx.lineTo(vx, vy + k);
-        ctx.lineTo(vx - k, vy);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-  }
-
   for (const [x, y] of visibleHexes()) {
     const [cx, cy] = hexCenter(x, y);
     const p = premiumAt(x, y);
-    const isStart = wrapCoord(x) === START_CELL.x && wrapCoord(y) === START_CELL.y;
+    const isStart = wrapCoord(x) === game.startCell.x && wrapCoord(y) === game.startCell.y;
     const onSeam = wrapCoord(x) === 0 || wrapCoord(y) === 0;
-    hexPath(cx, cy, c * 0.46);
+    hexPath(cx, cy, c * 0.47);
     ctx.fillStyle = p
       ? T().premium[p]
       : isStart
@@ -403,6 +384,7 @@ function renderRack() {
 }
 
 function rackTap(letter) {
+  if (suppressRackTap) return;
   if (mutating) {
     if (letter === BLANK) {
       pickingBlank = 'mutate';
@@ -594,6 +576,15 @@ function refresh() {
   renderOnline();
   canvas.classList.toggle('placing', !!placement);
   render();
+}
+
+/** On a fresh board, put the placement cursor on the ★ so typing just works. */
+function autoStartPlacement() {
+  if (placement || !game.board.isEmpty()) return;
+  if (currentPlayer == null || !game.players[currentPlayer] || game.players[currentPlayer].isCpu) return;
+  placement = { sx: game.startCell.x, sy: game.startCell.y, dir: 'h', entries: [] };
+  kbCursor = { ...game.startCell };
+  ensureVisible(game.startCell.x, game.startCell.y);
 }
 
 function cancelModes() {
@@ -825,6 +816,7 @@ function askName() {
     $('online-name').focus();
     return null;
   }
+  rememberName(typed);
   return typed;
 }
 
@@ -833,6 +825,8 @@ async function goOnline(result) {
   pendingJoinId = null;
   history.replaceState(null, '', shareLink());
   adoptView(result.view);
+  autoStartPlacement();
+  refresh();
   status('online game ready — share the link!', 'good');
 }
 
@@ -1208,9 +1202,11 @@ $('add-player-form').addEventListener('submit', (e) => {
   if (online()) return;
   const name = $('player-name').value.trim();
   if (!name) return;
+  rememberName(name);
   const p = game.addPlayer(name);
   $('player-name').value = '';
   if (currentPlayer == null) currentPlayer = p.id;
+  autoStartPlacement();
   status(`${p.name} joined with a rack of ${p.rack.length}`, 'good');
   refresh();
 });
@@ -1226,6 +1222,65 @@ $('add-cpu').addEventListener('click', () => {
   if (game.players.length > 1) setTimeout(runCpuTurns, 400);
   refresh();
 });
+
+// Drag rack tiles to rearrange them. Only when nothing is being spelled, so
+// the visible tiles map one-to-one onto the rack array.
+let rackDrag = null;
+let suppressRackTap = false;
+const rackBox = $('rack');
+rackBox.addEventListener('pointerdown', (e) => {
+  if (placement || mutating) return;
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  rackDrag = {
+    tile,
+    idx: [...rackBox.children].indexOf(tile),
+    x0: e.clientX,
+    y0: e.clientY,
+    pid: e.pointerId,
+    moved: false,
+  };
+});
+rackBox.addEventListener('pointermove', (e) => {
+  if (!rackDrag || e.pointerId !== rackDrag.pid) return;
+  const dx = e.clientX - rackDrag.x0;
+  const dy = e.clientY - rackDrag.y0;
+  if (!rackDrag.moved && Math.hypot(dx, dy) > 10) {
+    rackDrag.moved = true;
+    rackDrag.tile.setPointerCapture(e.pointerId);
+    rackDrag.tile.classList.add('dragging');
+  }
+  if (rackDrag.moved) rackDrag.tile.style.transform = `translate(${dx}px, ${dy}px)`;
+});
+function endRackDrag(e) {
+  if (!rackDrag || e.pointerId !== rackDrag.pid) return;
+  const d = rackDrag;
+  rackDrag = null;
+  d.tile.classList.remove('dragging');
+  d.tile.style.transform = '';
+  if (!d.moved) return; // a plain tap: let the click handler spell it
+  suppressRackTap = true;
+  setTimeout(() => (suppressRackTap = false), 0);
+  const p = game.players[currentPlayer];
+  if (!p) return;
+  let best = d.idx;
+  let bestDist = Infinity;
+  [...rackBox.children].forEach((k, i) => {
+    const r = k.getBoundingClientRect();
+    const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  });
+  if (best !== d.idx && best < p.rack.length && d.idx < p.rack.length) {
+    const [moved] = p.rack.splice(d.idx, 1);
+    p.rack.splice(best, 0, moved);
+  }
+  renderRack();
+}
+rackBox.addEventListener('pointerup', endRackDrag);
+rackBox.addEventListener('pointercancel', endRackDrag);
 
 $('shuffle').addEventListener('click', () => {
   const p = game.players[currentPlayer];
@@ -1248,6 +1303,11 @@ $('end-day').addEventListener('click', () => {
   );
   refresh();
 });
+
+if (savedName) {
+  $('online-name').value = savedName;
+  $('player-name').value = savedName;
+}
 
 const themeSelect = $('theme-select');
 for (const id of Object.keys(THEMES)) {

@@ -2,10 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeGame, tilesFor } from './helpers.js';
 
-test('ending the day awards stars to the leaders and resets scores', () => {
+test('ending the day awards stars, resets scores, moves the star, deals racks', () => {
   const g = makeGame(['cat']);
   g.players[0].score = 30;
   g.players[1].score = 12;
+  g.players[0].pendingChoice = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
   const winners = g.startNewDay();
   assert.deepEqual(winners.map((w) => w.name), ['Ana']);
   assert.equal(g.players[0].stars, 1);
@@ -13,6 +14,14 @@ test('ending the day awards stars to the leaders and resets scores', () => {
   assert.equal(g.players[0].score, 0);
   assert.equal(g.players[1].score, 0);
   assert.equal(g.day, 2);
+  // The start star wandered to a different double-word star...
+  assert.notDeepEqual(g.startCell, { x: 0, y: 0 });
+  assert.equal(g.startCell.x % 30, 0);
+  assert.equal(g.startCell.y % 30, 0);
+  // ...and everyone drew a completely fresh rack.
+  assert.equal(g.players[0].rack.length, 7);
+  assert.equal(g.players[1].rack.length, 7);
+  assert.equal(g.players[0].pendingChoice, undefined);
 });
 
 test('a tie gives everyone at the top a star; a scoreless day gives none', () => {
@@ -35,8 +44,11 @@ test('the day rolls over automatically with the clock', () => {
   assert.equal(g.players[0].score, 10);
 
   nowMs += 24 * 60 * 60 * 1000;
-  // New day: Ana may open it even though she played last, and yesterday's
-  // star is hers.
+  // New day: the rollover re-deals Ana's rack, so trigger it first, then
+  // give her the s. She may open the day even though she played last, and
+  // yesterday's star is hers.
+  assert.equal(g.rolloverIfNeeded(), true);
+  g.players[0].rack = ['s', 'e', 'e', 'e', 'e', 'e', 'e'];
   g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
   assert.equal(g.day, 2);
   assert.equal(g.players[0].stars, 1);
