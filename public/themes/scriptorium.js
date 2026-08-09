@@ -9,6 +9,7 @@ export default {
     cellFill: '#3a2a1a',
     seamFill: '#42301d',
     startFill: '#4a3520',
+    gapFill: '#221709',
     // TW/DW: sealing wax, deep and bright crimson. TL/DL: iron-gall ink blues.
     premium: { TW: '#6e1a12', DW: '#9c4a2e', TL: '#1d3a5f', DL: '#48627e' },
     premiumLabel: 'rgba(246,226,168,0.92)',
