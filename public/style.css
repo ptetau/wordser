@@ -50,6 +50,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 #online-controls, #join-controls { margin-top: 6px; }
 #online-controls button, #join-controls button { width: 100%; }
 #share { display: flex; gap: 6px; margin-top: 6px; }
+#share[hidden] { display: none; }
 #share input { flex: 1; font-size: 12px; color: #9fd48a; }
 #online-status { font-size: 13px; line-height: 1.4; }
 
@@ -86,7 +87,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .place-controls button.primary { background: #2f5e39; border-color: #3f7a4b; }
 .place-controls button.primary:hover { background: #387244; }
 #end-day { margin-top: 8px; width: 100%; }
-.muted { color: #77808f; }
+.muted { color: #8b95a5; }
 
 #log { font-size: 12px; color: #aeb6c2; max-height: 150px; overflow-y: auto; line-height: 1.5; }
 
@@ -97,10 +98,26 @@ details li { margin: 6px 0; }
 .chip.tw { background: #c0392b; } .chip.dw { background: #e07a6b; }
 .chip.tl { background: #2471a3; } .chip.dl { background: #7fb3d5; }
 
+.mini {
+  min-height: 24px; padding: 2px 8px; font-size: 12px;
+  border-radius: 6px; vertical-align: middle;
+}
+.letter-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.tile.small { width: 36px; height: 40px; font-size: 16px; }
+.tile:disabled { opacity: 0.25; cursor: default; }
+.tile:disabled:hover { background: #e9dcc3; }
+.preview-ok { color: #9fd48a; font-weight: 600; }
+.preview-bad { color: #ffb4a9; }
+
+/* Until a game exists, lead with setup and hide empty game sections. */
+.no-game #rack-section, .no-game #actions-section,
+.no-game #players-section, .no-game #log-section { display: none; }
+
 #status {
   position: sticky; bottom: 0; margin-top: auto;
   padding: 8px 10px; border-radius: 8px; font-size: 13px;
   background: #232833; min-height: 20px;
+  box-shadow: 0 -10px 14px rgba(23, 26, 32, 0.85);
 }
 #status.error { background: #4a2323; color: #ffb4a9; }
 #status.good { background: #23402a; color: #a9e8b0; }
@@ -123,4 +140,7 @@ details li { margin: 6px 0; }
   #actions-section { order: -2; }
   #players-section { order: -1; }
   #log { max-height: 90px; }
+  .tile { width: 48px; height: 52px; font-size: 22px; }
+  .tile.small { width: 40px; height: 44px; font-size: 17px; }
+  .place-controls button { min-height: 44px; }
 }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>wordser — infinite scrabble</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔠</text></svg>" />
 <link rel="stylesheet" href="./style.css" />
@@ -19,6 +19,7 @@
     <section id="online-section">
       <h2>Online</h2>
       <div id="online-status" class="muted">Hot-seat mode: everyone shares this screen.</div>
+      <input id="online-name" placeholder="your name" maxlength="20" autocomplete="off" style="width:100%;margin-top:6px" />
       <div id="online-controls">
         <button id="create-online">Create online game</button>
       </div>
@@ -40,7 +41,7 @@
     </section>
 
     <section id="rack-section">
-      <h2>Rack <span id="rack-hint" class="muted"></span></h2>
+      <h2>Rack <span id="rack-hint" class="muted"></span> <button id="shuffle" class="mini" title="shuffle rack" hidden>⇄ shuffle</button></h2>
       <div id="rack"></div>
     </section>
 
@@ -67,7 +68,7 @@
         <li><b>Arrow keys</b> move a board cursor (the view follows): type to start a word there, or press <b>Enter</b> on a tile to steal/mutate it. Arrows also slide a word you're spelling.</li>
         <li><b>Add CPU player 🤖</b> for a local opponent — it moves after you do.</li>
         <li>Spelling across a <i>wildcard</i> with a different letter redefines it — every word it belongs to must stay real.</li>
-        <li>Tap a placed tile to <b>mutate</b> its letter or <b>steal</b> its word: replace the word with your own; leftover letters join your rack (12 max, rest discarded).</li>
+        <li>Tap a placed tile to <b>mutate</b> its letter (pick from the grid) or <b>steal</b> its word: spell your replacement right over it — its letters are yours to reuse, arrows slide your word along the line, and leftover letters join your rack (12 max, rest discarded).</li>
         <li>The world is a 120×120 loop — walk off one edge and you come back on the other (words can wrap too). You can only play after a friend has played. Drag to pan, pinch or scroll to zoom.</li>
         <li>Premiums recur forever: <span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span>. They only count on letters changed that move.</li>
         <li>Bonus fruits appear near the action — cover one with a letter to eat it: 🍋 two extra letters, 🌶️ a high-scoring letter, 🍒 pick one of seven letters, 🍇 +10 points, 🍌 a fresh rack, 🥝 a wildcard.</li>

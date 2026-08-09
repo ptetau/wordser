@@ -75,6 +75,7 @@ export class Game {
     this.board = new Board();
     this.fruits = new Map(); // "x,y" -> fruit type, always on empty cells
     this.bag = new Bag(rng);
+    this.lastMove = null; // { playerId, keys } of the most recent board change
     this.#seedFruits();
     this.players = [];
     this.lastPlayerId = null;
@@ -415,6 +416,7 @@ export class Game {
 
       player.rack = rackCopy;
       const main = formed.find((w) => w.dir === dir) ?? formed[0];
+      this.lastMove = { playerId, keys: [...changed] };
       const fruits = this.#commit(player, points, `played "${main.word.toUpperCase()}"`, [...changed]);
       return { points, words: formed.map((w) => w.word), fruits };
     } catch (err) {
@@ -600,6 +602,7 @@ export class Game {
         coveredKeys.push(Board.key(c.x, c.y));
       }
     }
+    this.lastMove = { playerId, keys: [...changed] };
     const fruits = this.#commit(
       player,
       points,
@@ -647,6 +650,7 @@ export class Game {
 
       const changed = new Set([Board.key(x, y)]);
       const points = words.reduce((acc, w) => acc + this.#scoreWord(w.cells, changed), 0);
+      this.lastMove = { playerId, keys: [Board.key(x, y)] };
       this.#commit(
         player,
         points,
@@ -690,6 +694,7 @@ export class Game {
         const [x, y] = k.split(',').map(Number);
         return { x, y, type };
       }),
+      lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
       log: [...this.log],
     };
   }
@@ -704,6 +709,7 @@ export class Game {
     for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
     game.fruits.clear(); // replace the constructor's fresh scatter with the snapshot's
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
+    game.lastMove = data.lastMove ?? null;
     game.log = [...(data.log ?? [])];
     return game;
   }

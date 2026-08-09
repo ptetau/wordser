@@ -27,6 +27,8 @@ test('toJSON/fromJSON round-trips a game in progress', () => {
   assert.equal(g2.board.get(1, 0).isBlank, true);
   assert.equal(g2.players[0].score, g.players[0].score);
   assert.equal(g2.lastPlayerId, 0);
+  assert.equal(g2.lastMove.playerId, 0);
+  assert.deepEqual([...g2.lastMove.keys].sort(), ['0,0', '1,0', '2,0']);
 
   // The revived game keeps playing by the same rules.
   const r = g2.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' });

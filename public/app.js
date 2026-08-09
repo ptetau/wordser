@@ -9,6 +9,10 @@ import { Online, NetError } from './net.js';
 const $ = (id) => document.getElementById(id);
 const canvas = $('board');
 const ctx = canvas.getContext('2d');
+const BASE_TITLE = document.title;
+
+const esc = (s) =>
+  String(s).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 const status = (msg, cls = '') => {
   $('status').textContent = msg;
@@ -29,6 +33,7 @@ let mutating = null; // { x, y }
 let selected = null; // { x, y } for the actions panel
 let kbCursor = null; // keyboard cursor cell, moved with the arrow keys
 let cpuWordList = null; // lazy-built candidate words for CPU players
+let pickingBlank = null; // 'placement' | 'mutate': choosing a letter for a blank
 
 const online = () => session !== null;
 
@@ -38,11 +43,18 @@ const cam = { x: -6.5, y: -4.5, cell: 44 };
 const PREMIUM_FILL = { TW: '#8c2f23', DW: '#6e4038', TL: '#1f5d8a', DL: '#3d5a75' };
 const PREMIUM_TEXT = { TW: '3×W', DW: '2×W', TL: '3×L', DL: '2×L' };
 
+let camCentered = false;
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = canvas.clientWidth * dpr;
   canvas.height = canvas.clientHeight * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!camCentered && canvas.clientWidth > 0) {
+    // Open with the ★ start cell centred, whatever the screen size.
+    camCentered = true;
+    cam.x = START_CELL.x + 0.5 - canvas.clientWidth / cam.cell / 2;
+    cam.y = START_CELL.y + 0.5 - canvas.clientHeight / cam.cell / 2;
+  }
   render();
 }
 window.addEventListener('resize', resize);
@@ -137,10 +149,11 @@ function render() {
         const fx = (x - cam.x) * c + c / 2;
         const fy = (y - cam.y) * c + c / 2;
         ctx.beginPath();
-        ctx.arc(fx, fy, c * 0.4, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(242,211,119,0.22)';
+        ctx.arc(fx, fy, c * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(242,211,119,0.5)';
         ctx.fill();
-        ctx.font = `${Math.floor(c * 0.72)}px ${EMOJI_FONT}`;
+        // Keep fruit legible even zoomed far out.
+        ctx.font = `${Math.max(16, Math.floor(c * 0.72))}px ${EMOJI_FONT}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(FRUIT_EMOJI[fruit] ?? '🍇', fx, fy + c * 0.05);
@@ -154,10 +167,25 @@ function render() {
     }
   }
 
+  // Highlight the most recent move so opponent/CPU plays are easy to spot.
+  if (game.lastMove?.keys?.length && !placement) {
+    const lm = new Set(game.lastMove.keys);
+    ctx.strokeStyle = 'rgba(127,212,255,0.6)';
+    ctx.lineWidth = 2;
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        if (!lm.has(Board.key(x, y))) continue;
+        ctx.strokeRect((x - cam.x) * c + 2, (y - cam.y) * c + 2, c - 4, c - 4);
+      }
+    }
+  }
+
   if (placement) {
     for (const e of placement.entries) {
       if (e.redefine) drawTile(e.x, e.y, e.redefine, { blank: true, redefine: true });
-      else if (!e.existing) drawTile(e.x, e.y, e.letter, { pending: true, blank: e.fromBlank });
+      else if (!e.existing || placement.stealing) {
+        drawTile(e.x, e.y, e.letter, { pending: true, blank: e.fromBlank });
+      }
     }
     const cur = nextCell();
     const sx = (cur.x - cam.x) * c;
@@ -213,7 +241,7 @@ function renderPlayers() {
     if (mustWait) div.classList.add('waiting');
     const you = online() && p.id === session.playerId ? ' <small>(you)</small>' : '';
     div.innerHTML = `
-      <span class="name">${p.name}${you}${mustWait ? ' <small>(waiting)</small>' : ''}</span>
+      <span class="name">${esc(p.name)}${you}${mustWait ? ' <small>(waiting)</small>' : ''}</span>
       <span class="stars">${'★'.repeat(p.stars)}</span>
       <span class="score">${p.score}</span>`;
     if (!online()) {
@@ -253,13 +281,14 @@ function renderRack() {
     t.onclick = () => rackTap(l);
     box.appendChild(t);
   }
+  $('shuffle').hidden = !p;
 }
 
 function rackTap(letter) {
   if (mutating) {
     if (letter === BLANK) {
-      const as = (window.prompt('Play the blank as which letter?') ?? '').trim().toLowerCase();
-      if (/^[a-z]$/.test(as)) applyMutate(as, true);
+      pickingBlank = 'mutate';
+      refresh();
     } else {
       applyMutate(letter, false);
     }
@@ -267,8 +296,8 @@ function rackTap(letter) {
   }
   if (placement) {
     if (letter === BLANK) {
-      const as = (window.prompt('Play the blank as which letter?') ?? '').trim().toLowerCase();
-      if (/^[a-z]$/.test(as)) typeLetter(as, { preferBlank: true });
+      pickingBlank = 'placement';
+      refresh();
     } else {
       typeLetter(letter);
     }
@@ -277,14 +306,50 @@ function rackTap(letter) {
   status('tap an empty cell first to start a word', '');
 }
 
+/** A tappable a–z tile grid, used for blanks and for mutating letters. */
+function letterGrid(box, { available = null, onPick }) {
+  const grid = document.createElement('div');
+  grid.className = 'letter-grid';
+  for (const l of 'abcdefghijklmnopqrstuvwxyz') {
+    const t = document.createElement('button');
+    t.type = 'button';
+    t.className = 'tile small';
+    t.textContent = l;
+    if (available && !available.has(l)) t.disabled = true;
+    t.onclick = () => onPick(l);
+    grid.appendChild(t);
+  }
+  box.appendChild(grid);
+}
+
 function renderActions() {
   const box = $('cell-actions');
-  $('end-day').hidden = online();
+  $('end-day').hidden = online() || !game.players.length;
+
+  if (pickingBlank) {
+    box.innerHTML = '<b>Blank tile:</b> play it as which letter? <button id="cancel-pick" class="mini">✕</button>';
+    $('cancel-pick').onclick = () => {
+      pickingBlank = null;
+      refresh();
+    };
+    letterGrid(box, {
+      onPick: (l) => {
+        const mode = pickingBlank;
+        pickingBlank = null;
+        if (mode === 'mutate') applyMutate(l, true);
+        else if (placement) typeLetter(l, { preferBlank: true });
+      },
+    });
+    return;
+  }
+
   const chooser = online()
     ? game.players[session.playerId]
-    : game.players.find((p) => p.pendingChoice);
+    : game.players[currentPlayer]?.pendingChoice
+      ? game.players[currentPlayer]
+      : null;
   if (chooser?.pendingChoice) {
-    box.innerHTML = `<b>${FRUIT_EMOJI.cherry} Cherry${online() ? '' : ` for ${chooser.name}`}:</b> keep one letter:
+    box.innerHTML = `<b>${FRUIT_EMOJI.cherry} Cherry${online() ? '' : ` for ${esc(chooser.name)}`}:</b> keep one letter:
       <div id="cherry-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>`;
     const picker = box.querySelector('#cherry-picker');
     chooser.pendingChoice.forEach((l, index) => {
@@ -302,24 +367,45 @@ function renderActions() {
     return;
   }
   if (mutating) {
-    box.innerHTML =
-      '<b>Mutate:</b> tap a rack tile (or type) to swap it in. <button id="cancel-mutate">✕ Cancel</button>';
+    const p = game.players[currentPlayer];
+    const available = new Set();
+    if (p) {
+      const hasBlank = p.rack.includes(BLANK);
+      for (const l of 'abcdefghijklmnopqrstuvwxyz') {
+        if (hasBlank || p.rack.includes(l)) available.add(l);
+      }
+    }
+    box.innerHTML = '<b>Mutate:</b> swap in which letter? <button id="cancel-mutate" class="mini">✕</button>';
     $('cancel-mutate').onclick = () => {
       mutating = null;
       refresh();
     };
+    letterGrid(box, {
+      available,
+      onPick: (l) => applyMutate(l, !game.players[currentPlayer].rack.includes(l)),
+    });
     return;
   }
   if (placement) {
     const word = placement.entries.map((e) => e.redefine ?? e.letter).join('');
-    box.innerHTML = `<b>Placing:</b> ${word.toUpperCase() || '…'}
+    const preview = previewMove();
+    const note = !preview
+      ? ''
+      : preview.ok
+        ? ` · <span class="preview-ok">${preview.points} pts${preview.fruit ? ' 🍒' : ''}</span>`
+        : ` · <span class="preview-bad">${esc(preview.message)}</span>`;
+    const heading = placement.stealing
+      ? `<b>Steal:</b> ${esc(placement.stealing.word.toUpperCase())} → ${word.toUpperCase() || '…'}`
+      : `<b>Placing:</b> ${word.toUpperCase() || '…'}`;
+    box.innerHTML = `${heading}${note}
+      ${placement.stealing ? '<div class="muted" style="margin-top:2px">spell the new word — arrows slide it along the line</div>' : ''}
       <div class="place-controls">
-        <button id="pc-dir" title="flip direction (Space)">${placement.dir === 'h' ? '→' : '↓'}</button>
+        ${placement.stealing ? '' : `<button id="pc-dir" title="flip direction (Space)">${placement.dir === 'h' ? '→' : '↓'}</button>`}
         <button id="pc-undo" title="undo letter (Backspace)">⌫</button>
         <button id="pc-cancel" title="cancel (Esc)">✕</button>
-        <button id="pc-play" class="primary" title="play word (Enter)">✓</button>
+        <button id="pc-play" class="primary" title="play word (Enter)">✓${preview?.ok ? ` ${preview.points}` : ''}</button>
       </div>`;
-    $('pc-dir').onclick = flipDirection;
+    if (!placement.stealing) $('pc-dir').onclick = flipDirection;
     $('pc-undo').onclick = () => {
       placement.entries.pop();
       refresh();
@@ -357,7 +443,7 @@ function renderActions() {
 }
 
 function renderLog() {
-  $('log').innerHTML = game.log.slice(-14).reverse().map((l) => `<div>${l}</div>`).join('');
+  $('log').innerHTML = game.log.slice(-14).reverse().map((l) => `<div>${esc(l)}</div>`).join('');
 }
 
 function renderOnline() {
@@ -365,7 +451,12 @@ function renderOnline() {
   $('setup-section').hidden = online() || pendingJoinId !== null;
   $('join-controls').hidden = !(pendingJoinId !== null && !online());
   $('online-controls').hidden = online() || pendingJoinId !== null;
+  $('online-name').hidden = online();
   $('share').hidden = !online();
+  document.body.classList.toggle(
+    'no-game',
+    !online() && pendingJoinId === null && game.players.length === 0,
+  );
   if (online()) {
     const me = game.players[session.playerId];
     stat.textContent = `Online as ${me ? me.name : '…'} — share the link so friends can join.`;
@@ -390,6 +481,7 @@ function refresh() {
 function cancelModes() {
   placement = null;
   mutating = null;
+  pickingBlank = null;
 }
 
 function requirePlayer() {
@@ -402,9 +494,20 @@ function requirePlayer() {
 
 // -------------------------------------------------------- moves (both modes)
 function adoptView(d) {
+  const changed = d.seq !== seq;
   seq = d.seq;
   game = Game.fromJSON(d.game, { dictionary });
   currentPlayer = session.playerId;
+  // Someone else's move arrived: announce it and bring it into view.
+  if (changed && game.lastMove && game.lastMove.playerId !== session.playerId && !placement) {
+    const [x, y] = game.lastMove.keys[0].split(',').map(Number);
+    ensureVisible(x, y);
+    if (game.log.length) status(game.log[game.log.length - 1], '');
+  }
+  document.title =
+    online() && game.players.length > 1 && game.lastPlayerId !== session.playerId
+      ? '● your turn — wordser'
+      : BASE_TITLE;
   refresh();
 }
 
@@ -446,29 +549,65 @@ async function doMove(move, describe) {
   }
 }
 
+/**
+ * Start a steal as an on-board composition: the replacement word is spelled
+ * over the old word with rack taps or typing, and the arrow keys slide it
+ * along the line (that is the offset). ✓ submits.
+ */
 function stealWord(w, dir) {
   if (!requirePlayer()) return;
-  const word = window.prompt(
-    `Replace "${w.word.toUpperCase()}" with (your rack + its letters; leftovers are stolen, 12 rack max):`,
-  );
-  if (!word) return;
-  let offset = 0;
-  if (word.trim().length !== w.cells.length) {
-    const o = window.prompt('Offset from the old word’s first letter (0 = same start):', '0');
-    if (o === null) return;
-    offset = Number(o) || 0;
-  }
-  doMove(
-    {
+  cancelModes();
+  selected = null;
+  placement = {
+    sx: w.cells[0].x,
+    sy: w.cells[0].y,
+    dir,
+    entries: [],
+    stealing: { x: w.cells[0].x, y: w.cells[0].y, dir, word: w.word },
+  };
+  status(`spell your replacement for "${w.word.toUpperCase()}" — its letters are yours to reuse`, '');
+  refresh();
+}
+
+/** The move the current placement would submit, or null if incomplete. */
+function currentMove() {
+  if (!placement) return null;
+  if (placement.stealing) {
+    const word = placement.entries.map((e) => e.letter).join('');
+    if (word.length < 2) return null;
+    const st = placement.stealing;
+    return {
       type: 'steal',
-      x: w.cells[0].x,
-      y: w.cells[0].y,
-      dir,
-      word: word.trim().toLowerCase(),
-      offset,
-    },
-    (r) => `stole it for ${r.points} points${r.stolen ? `, pocketed ${r.stolen}` : ''}${fruitNote(r)}`,
-  );
+      x: st.x,
+      y: st.y,
+      dir: st.dir,
+      word,
+      offset: st.dir === 'h' ? placement.sx - st.x : placement.sy - st.y,
+    };
+  }
+  const tiles = placement.entries
+    .filter((e) => !e.existing)
+    .map((e) => ({ x: e.x, y: e.y, letter: e.letter, fromBlank: e.fromBlank }));
+  if (!tiles.length) return null;
+  const redefinitions = placement.entries
+    .filter((e) => e.redefine)
+    .map((e) => ({ x: e.x, y: e.y, as: e.redefine }));
+  return { type: 'place', tiles, redefinitions };
+}
+
+/** Dry-run the pending move on a throwaway copy for live score feedback. */
+function previewMove() {
+  const move = currentMove();
+  if (move == null || currentPlayer == null) return null;
+  try {
+    const clone = Game.fromJSON(game.toJSON(), { dictionary });
+    const r = clone.apply({ playerId: currentPlayer, ...move });
+    return { ok: true, points: r.points, fruit: r.fruits?.length > 0 };
+  } catch (err) {
+    if (err instanceof GameError) return { ok: false, message: err.message };
+    console.error(err);
+    return null;
+  }
 }
 
 function applyMutate(letter, fromBlank) {
@@ -480,19 +619,19 @@ function applyMutate(letter, fromBlank) {
 }
 
 function commitPlacement() {
-  const tiles = placement.entries
-    .filter((e) => !e.existing)
-    .map((e) => ({ x: e.x, y: e.y, letter: e.letter, fromBlank: e.fromBlank }));
-  const redefinitions = placement.entries
-    .filter((e) => e.redefine)
-    .map((e) => ({ x: e.x, y: e.y, as: e.redefine }));
-  if (!tiles.length) {
-    status('add at least one new letter', 'error');
+  const move = currentMove();
+  if (!move) {
+    status(
+      placement?.stealing ? 'spell at least two letters' : 'add at least one new letter',
+      'error',
+    );
     return;
   }
   doMove(
-    { type: 'place', tiles, redefinitions },
-    (r) => `played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
+    move,
+    move.type === 'steal'
+      ? (r) => `stole it for ${r.points} points${r.stolen ? `, pocketed ${r.stolen}` : ''}${fruitNote(r)}`
+      : (r) => `played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
   );
 }
 
@@ -517,7 +656,13 @@ function runCpuTurns() {
       acted = true;
     }
   }
-  if (acted) refresh();
+  if (acted) {
+    if (game.lastMove?.keys?.length && !placement) {
+      const [x, y] = game.lastMove.keys[0].split(',').map(Number);
+      ensureVisible(x, y);
+    }
+    refresh();
+  }
 }
 
 function showError(err) {
@@ -556,10 +701,13 @@ async function sync(force = false) {
 setInterval(() => sync(), 3000);
 
 function askName() {
-  const typed = $('player-name').value.trim();
-  if (typed) return typed;
-  const p = (window.prompt('Your name?') ?? '').trim();
-  return p || null;
+  const typed = ($('online-name').value || $('player-name').value).trim();
+  if (!typed) {
+    status('enter your name first', 'error');
+    $('online-name').focus();
+    return null;
+  }
+  return typed;
 }
 
 async function goOnline(result) {
@@ -652,7 +800,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
   const dx = e.clientX - drag.px;
   const dy = e.clientY - drag.py;
-  if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+  if (Math.abs(dx) + Math.abs(dy) > 10) drag.moved = true;
   if (drag.moved) {
     cam.x -= dx / cam.cell;
     cam.y -= dy / cam.cell;
@@ -680,8 +828,23 @@ canvas.addEventListener('pointercancel', (e) => {
 });
 
 function tapCell({ x, y }) {
-  cancelModes();
   kbCursor = { x, y };
+  // A tap while a word is being spelled moves the word instead of wiping it.
+  if (placement?.entries.length && !game.board.get(x, y)) {
+    if (placement.stealing) {
+      const st = placement.stealing;
+      if (st.dir === 'h' && y === placement.sy) slidePlacement(x - placement.sx, 0);
+      else if (st.dir === 'v' && x === placement.sx) slidePlacement(0, y - placement.sy);
+      refresh();
+      return;
+    }
+    const typed = placement.entries.map((e) => e.typed);
+    placement = { sx: x, sy: y, dir: placement.dir, entries: [] };
+    for (const t of typed) if (!typeLetter(t, { silent: true })) break;
+    refresh();
+    return;
+  }
+  cancelModes();
   if (game.board.get(x, y)) {
     selected = { x, y };
   } else {
@@ -689,6 +852,23 @@ function tapCell({ x, y }) {
     if (requirePlayer()) placement = { sx: x, sy: y, dir: 'h', entries: [] };
   }
   refresh();
+}
+
+/** Shift the whole pending word by (dx, dy), keeping its letters. */
+function slidePlacement(dx, dy) {
+  placement.sx += dx;
+  placement.sy += dy;
+  if (placement.stealing) {
+    placement.entries = placement.entries.map((e, i) => ({
+      ...e,
+      x: placement.sx + (placement.dir === 'h' ? i : 0),
+      y: placement.sy + (placement.dir === 'v' ? i : 0),
+    }));
+  } else {
+    const typed = placement.entries.map((e) => e.typed);
+    placement.entries = [];
+    for (const t of typed) if (!typeLetter(t, { silent: true })) break;
+  }
 }
 
 canvas.addEventListener(
@@ -727,9 +907,16 @@ window.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   const arrow = ARROWS[key];
 
+  if (pickingBlank && e.key === 'Escape') {
+    pickingBlank = null;
+    refresh();
+    return;
+  }
+
   if (mutating) {
     if (e.key === 'Escape') {
       mutating = null;
+      pickingBlank = null;
       refresh();
     } else if (/^[a-z]$/.test(key)) {
       const p = game.players[currentPlayer];
@@ -743,14 +930,12 @@ window.addEventListener('keydown', (e) => {
     if (arrow) {
       // Move the whole word start; the viewport follows the cursor.
       e.preventDefault();
-      const typed = placement.entries.map((en) => en.typed);
-      placement = {
-        sx: placement.sx + arrow[0],
-        sy: placement.sy + arrow[1],
-        dir: placement.dir,
-        entries: [],
-      };
-      for (const t of typed) if (!typeLetter(t, { silent: true })) break;
+      if (placement.stealing) {
+        // Stealing slides only along the stolen word's line.
+        const st = placement.stealing;
+        if ((st.dir === 'h' && arrow[1] !== 0) || (st.dir === 'v' && arrow[0] !== 0)) return;
+      }
+      slidePlacement(arrow[0], arrow[1]);
       const cur = nextCell();
       ensureVisible(cur.x, cur.y);
       refresh();
@@ -809,7 +994,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 function flipDirection() {
-  if (!placement) return;
+  if (!placement || placement.stealing) return;
   const typed = placement.entries.map((e) => e.typed);
   placement = {
     sx: placement.sx,
@@ -829,6 +1014,19 @@ function flipDirection() {
  * you can spell straight across them; mismatched wildcards are redefined.
  */
 function typeLetter(letter, { preferBlank = false, silent = false } = {}) {
+  if (placement.stealing) {
+    // Stealing spells the replacement over the old word; the engine sources
+    // letters from the old word and the rack, so just record the letters.
+    if (placement.entries.length >= 15) return false;
+    placement.entries.push({ ...nextCell(), letter, typed: letter, existing: false });
+    if (!silent) {
+      status('');
+      const cur = nextCell();
+      ensureVisible(cur.x, cur.y);
+      refresh();
+    }
+    return true;
+  }
   for (let guard = 0; guard < 64; guard++) {
     const cell = nextCell();
     const tile = game.board.get(cell.x, cell.y);
@@ -869,6 +1067,8 @@ function typeLetter(letter, { preferBlank = false, silent = false } = {}) {
   }
   if (!silent) {
     status('');
+    const cur = nextCell();
+    ensureVisible(cur.x, cur.y);
     refresh();
   }
   return true;
@@ -897,6 +1097,16 @@ $('add-cpu').addEventListener('click', () => {
   status(`${p.name} joined — it plays whenever it may`, 'good');
   if (game.players.length > 1) setTimeout(runCpuTurns, 400);
   refresh();
+});
+
+$('shuffle').addEventListener('click', () => {
+  const p = game.players[currentPlayer];
+  if (!p) return;
+  for (let i = p.rack.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [p.rack[i], p.rack[j]] = [p.rack[j], p.rack[i]];
+  }
+  renderRack();
 });
 
 $('end-day').addEventListener('click', () => {

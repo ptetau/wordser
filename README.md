@@ -20,11 +20,14 @@ Two ways to play:
   cheat their rack. (Locally `npm start` serves the API from memory; the
   deployed site stores games in Redis.)
 
-Tap a placed tile to steal or mutate its word. Drag to pan; pinch or scroll
-to zoom. The arrow keys drive a board cursor (the viewport follows): type to
-start a word at the cursor, press Enter on a tile to steal/mutate it, and
-`+`/`-` zoom. **Add CPU player 🤖** gives local games a computer opponent
-that searches for real placements with the same rules engine.
+Tap a placed tile to steal or mutate its word — a steal is spelled right
+over the old word (its letters are yours to reuse; arrows slide your word
+along the line), and mutations pick from a letter grid. The ✓ button shows
+the points a play will score before you commit. Drag to pan; pinch or
+scroll to zoom. The arrow keys drive a board cursor (the viewport follows):
+type to start a word at the cursor, press Enter on a tile to steal/mutate
+it, and `+`/`-` zoom. **Add CPU player 🤖** gives local games a computer
+opponent that searches for real placements with the same rules engine.
 
 ```sh
 npm test           # engine + API test suite (node --test, no dependencies)
