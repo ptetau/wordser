@@ -17,7 +17,7 @@ export default {
       DL: '#5b96ac', // pale sea-glass blue, bluer + lighter than the teal water
     },
     premiumLabel: 'rgba(255,247,231,0.88)',
-    speckle: 'rgba(242,250,244,0.4)', // sun-glitter / sea-foam flecks
+    speckle: 'rgba(255,238,196,0.38)', // warm sun-glitter on the water
     cellStroke: 'rgba(16,52,50,0.28)', // wet hairline between pools
     tile: {
       style: 'bevel',
