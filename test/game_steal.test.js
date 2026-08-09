@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GameError, RACK_MAX } from '../src/engine/game.js';
+import { GameError, RACK_MAX } from '../public/engine/game.js';
 import { makeGame, tilesFor } from './helpers.js';
 
 function withCat(words, ben) {

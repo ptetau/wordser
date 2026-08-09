@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { premiumAt, PERIOD } from '../src/engine/premium.js';
+import { premiumAt, PERIOD } from '../public/engine/premium.js';
 
 test('pattern recurs with period 8 in both axes', () => {
   for (let x = -10; x <= 10; x += 3) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Board } from '../src/engine/board.js';
+import { Board } from '../public/engine/board.js';
 
 function put(board, x, y, letters, dir = 'h') {
   for (let i = 0; i < letters.length; i++) {

@@ -1,10 +1,10 @@
 // Tiny static server for local hot-seat play: `npm start`, then open
-// http://localhost:8080/
+// http://localhost:8080/  (serves public/, same layout Vercel deploys)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
-const ROOT = new URL('.', import.meta.url).pathname;
+const ROOT = new URL('./public/', import.meta.url).pathname;
 const PORT = process.env.PORT ?? 8080;
 
 const TYPES = {
@@ -19,11 +19,6 @@ const TYPES = {
 createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (path === '/') {
-      res.writeHead(302, { location: '/web/' });
-      res.end();
-      return;
-    }
     if (path.endsWith('/')) path += 'index.html';
     const file = normalize(join(ROOT, path));
     if (!file.startsWith(ROOT)) throw new Error('nope');

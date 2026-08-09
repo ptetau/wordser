@@ -1,15 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": null,
-  "outputDirectory": ".",
-  "redirects": [
-    { "source": "/", "destination": "/web/", "permanent": false }
-  ],
   "headers": [
     {
       "source": "/data/words.txt",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400, immutable" }
+        { "key": "Cache-Control", "value": "public, max-age=86400" }
       ]
     }
   ]

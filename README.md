@@ -57,12 +57,15 @@ can be plugged in by deployments holding a licence — see
 ## Layout
 
 ```
-src/engine/   game rules: board, premiums, tiles, dictionary, moves, scoring
-web/          canvas UI for hot-seat play (no build step, plain ES modules)
-data/         bundled word list
-test/         node:test suite
-server.js     tiny static server for local play
+public/engine/   game rules: board, premiums, tiles, dictionary, moves, scoring
+public/          canvas UI for hot-seat play (no build step, plain ES modules)
+public/data/     bundled word list
+test/            node:test suite
+server.js        tiny static server for local play
 ```
+
+The `public/` directory is a self-contained static site, so it deploys
+anywhere static files go (Vercel picks it up with zero configuration).
 
 The engine is UI-agnostic and deterministic (injectable RNG and clock), so a
 networked server for real n-player play can sit on top of `Game` without

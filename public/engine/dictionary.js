@@ -31,7 +31,7 @@ export class Dictionary {
 }
 
 /** Node-only convenience loader for the bundled list. */
-export async function loadBundledDictionary(url = new URL('../../data/words.txt', import.meta.url)) {
+export async function loadBundledDictionary(url = new URL('../data/words.txt', import.meta.url)) {
   const { readFile } = await import('node:fs/promises');
   return Dictionary.fromText(await readFile(url, 'utf8'));
 }

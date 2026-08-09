@@ -1,6 +1,6 @@
-import { Game } from '../src/engine/game.js';
-import { Dictionary } from '../src/engine/dictionary.js';
-import { mulberry32 } from '../src/engine/tiles.js';
+import { Game } from '../public/engine/game.js';
+import { Dictionary } from '../public/engine/dictionary.js';
+import { mulberry32 } from '../public/engine/tiles.js';
 
 /** A game with a controlled dictionary, deterministic bag, and fixed racks. */
 export function makeGame(words, { players = ['Ana', 'Ben'], racks, now } = {}) {

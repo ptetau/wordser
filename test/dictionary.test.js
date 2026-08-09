@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Dictionary, loadBundledDictionary } from '../src/engine/dictionary.js';
+import { Dictionary, loadBundledDictionary } from '../public/engine/dictionary.js';
 
 test('dictionary lookups are case-insensitive', () => {
   const d = new Dictionary(['Cat', 'DOG']);

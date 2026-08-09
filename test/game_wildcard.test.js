@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GameError } from '../src/engine/game.js';
+import { GameError } from '../public/engine/game.js';
 import { makeGame } from './helpers.js';
 
 function placeCatWithBlank(g) {

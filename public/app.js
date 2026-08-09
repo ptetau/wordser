@@ -1,8 +1,8 @@
-import { Game, GameError } from '../src/engine/game.js';
-import { Dictionary } from '../src/engine/dictionary.js';
-import { Board } from '../src/engine/board.js';
-import { premiumAt } from '../src/engine/premium.js';
-import { LETTER_VALUES, BLANK } from '../src/engine/tiles.js';
+import { Game, GameError } from './engine/game.js';
+import { Dictionary } from './engine/dictionary.js';
+import { Board } from './engine/board.js';
+import { premiumAt } from './engine/premium.js';
+import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('board');
@@ -14,7 +14,7 @@ const status = (msg, cls = '') => {
 };
 
 status('loading dictionary…');
-const dictText = await fetch('../data/words.txt').then((r) => r.text());
+const dictText = await fetch('./data/words.txt').then((r) => r.text());
 const dictionary = Dictionary.fromText(dictText);
 const game = new Game({ dictionary });
 status(`dictionary loaded (${dictionary.size.toLocaleString()} words). Add players to start.`);
