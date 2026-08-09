@@ -63,6 +63,15 @@ return 'OK'`;
       const v = await call(['GET', key]);
       return v ? JSON.parse(v) : null;
     },
+    /** Read-only store health probe (no secrets). */
+    async diag(key) {
+      return {
+        envSource: env.KV_REST_API_URL ? 'KV_REST_API_*' : 'UPSTASH_REDIS_REST_*',
+        exists: await call(['EXISTS', key]),
+        ttl: await call(['TTL', key]),
+        dbsize: await call(['DBSIZE']),
+      };
+    },
     /** Write `value` only if the stored seq still equals expectedSeq (0 = absent). */
     async put(key, value, expectedSeq) {
       const res = await call(['EVAL', CAS, '1', key, JSON.stringify(value), String(expectedSeq)]);
@@ -143,6 +152,11 @@ export async function handleAction(store, body) {
         return { status: 409, data: { error: 'try again' } };
       }
       return { status: 200, data: { ...view(record, player.id), token } };
+    }
+
+    if (action === 'diag') {
+      const d = store.diag ? await store.diag(KEY(body?.id ?? '')) : { memory: true };
+      return { status: 200, data: d };
     }
 
     const record = await store.get(KEY(body?.id));
