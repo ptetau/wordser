@@ -155,8 +155,22 @@ export async function handleAction(store, body) {
     }
 
     if (action === 'diag') {
-      const d = store.diag ? await store.diag(KEY(body?.id ?? '')) : { memory: true };
-      return { status: 200, data: d };
+      const env = process.env;
+      const base = {
+        build: 'diag2',
+        hasKvUrl: Boolean(env.KV_REST_API_URL),
+        hasKvToken: Boolean(env.KV_REST_API_TOKEN),
+        hasUpstashUrl: Boolean(env.UPSTASH_REDIS_REST_URL),
+        hasUpstashToken: Boolean(env.UPSTASH_REDIS_REST_TOKEN),
+        redisHost: (env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL ?? '').replace(/^https?:\/\//, '').slice(0, 12),
+        storeKind: store?.diag ? 'redis' : 'no-diag',
+      };
+      try {
+        const probe = store.diag ? await store.diag(KEY(body?.id ?? '')) : {};
+        return { status: 200, data: { ...base, ...probe } };
+      } catch (err) {
+        return { status: 200, data: { ...base, diagError: String(err.message).slice(0, 200) } };
+      }
     }
 
     const record = await store.get(KEY(body?.id));
