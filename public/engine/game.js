@@ -27,8 +27,8 @@ export const BINGO_BONUS = 50;
 // Bonus fruits appear on empty cells near the action, pac-man style. Cover
 // one with a newly placed tile to eat it.
 export const FRUIT_EMOJI = { lemon: '🍋', cherry: '🍒', chilli: '🌶️' };
-const FRUIT_CHANCE = 0.3;
-const MAX_FRUITS = 3;
+const FRUIT_CHANCE = 0.6;
+const MAX_FRUITS = 5;
 const FRUIT_RADIUS = 4;
 const CHERRY_CHOICES = 7;
 const FIERY_LETTERS = ['j', 'q', 'x', 'z'];

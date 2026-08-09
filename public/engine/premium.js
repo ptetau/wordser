@@ -1,31 +1,33 @@
 // Premium squares on the infinite plain.
 //
-// A recurring criss-cross lattice: premium dots run along both diagonal
-// families of the grid, expressed in diagonal coordinates u = x+y and
-// v = x-y (u and v always share the same parity).
-//
-//   - Word diagonals: the lines u ≡ 0 and v ≡ 0 (mod 12). Where two cross:
-//     triple word. Half-way between crossings: double word, with triple
-//     letter where two of those half-way lines meet.
-//   - Letter diagonals: the odd lines u ≡ 3 and v ≡ 3 (mod 6), running
-//     between the word diagonals, dotted with double letters.
-//
-// The pattern repeats with period PERIOD in both x and y.
+// The classic scrabble board layout, tiled seamlessly forever. The standard
+// 15×15 board is mirror-symmetric about its centre lines, and its last row
+// and column repeat its first, so dropping them gives a 14×14 tile that
+// reproduces the familiar pattern — triple-word corners, double-word
+// diagonal X's, the triple/double-letter diamonds — continuously across the
+// whole plane.
 
-export const PERIOD = 12;
+export const PERIOD = 14;
 
 const mod = (n, m) => ((n % m) + m) % m;
+
+// One quadrant of the classic board (0..7 in both axes, 7 = board centre).
+const QUADRANT = {
+  '0,0': 'TW', '7,0': 'TW', '0,7': 'TW',
+  '1,1': 'DW', '2,2': 'DW', '3,3': 'DW', '4,4': 'DW', '7,7': 'DW',
+  '5,1': 'TL', '1,5': 'TL', '5,5': 'TL',
+  '3,0': 'DL', '0,3': 'DL', '6,2': 'DL', '2,6': 'DL',
+  '3,7': 'DL', '7,3': 'DL', '6,6': 'DL',
+};
 
 /**
  * Premium at integer cell (x, y).
  * @returns {'TW'|'DW'|'TL'|'DL'|null}
  */
 export function premiumAt(x, y) {
-  const u = mod(x + y, PERIOD);
-  const v = mod(x - y, PERIOD);
-  if (u === 0 && v === 0) return 'TW';
-  if ((u === 0 && v === 6) || (u === 6 && v === 0)) return 'DW';
-  if (u === 6 && v === 6) return 'TL';
-  if (u % 6 === 3 && v % 6 === 3) return 'DL';
-  return null;
+  let u = mod(x, PERIOD);
+  let v = mod(y, PERIOD);
+  if (u > 7) u = PERIOD - u;
+  if (v > 7) v = PERIOD - v;
+  return QUADRANT[`${u},${v}`] ?? null;
 }

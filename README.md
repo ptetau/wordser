@@ -32,11 +32,11 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 - **Infinite board.** No edges, no centre star. The first word can be played
   anywhere; every later word must connect to what's on the board.
-- **Criss-cross premiums.** Double/triple letter and word squares recur
-  forever in a sparse diagonal criss-cross lattice (period 12 in both
-  directions). Word premiums dot one family of diagonals, letter premiums
-  the family in between. A premium counts only when the letter on it
-  changed that move.
+- **Classic premiums, tiled forever.** The premium squares are the actual
+  classic scrabble layout — triple-word corners, double-word diagonal X's,
+  the triple/double-letter diamonds — tiled seamlessly across the plane
+  (the symmetric 15×15 board reduces to a 14×14 tile). A premium counts
+  only when the letter on it changed that move.
 - **Play after a friend.** You may only move after another player has moved —
   nobody plays twice in a row (waived while you're alone in the game).
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
@@ -54,7 +54,8 @@ npm test           # engine + API test suite (node --test, no dependencies)
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.
 - **Bonus fruits.** Pac-man style, fruits appear on empty cells near the
-  action (at most three at a time). Cover one with a newly placed letter to
+  action (most moves spawn one; at most five at a time). Cover one with a
+  newly placed letter to
   eat it: 🍋 lemon feeds you two extra letters, 🌶️ chilli hands you a
   high-scoring letter (J/Q/X/Z), 🍒 cherry lets you keep one letter from a
   choice of seven. Eating a cherry's choice doesn't use your turn.

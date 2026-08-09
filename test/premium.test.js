@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { premiumAt, PERIOD } from '../public/engine/premium.js';
 
-test('pattern recurs with period 12 in both axes', () => {
-  for (let x = -14; x <= 14; x += 3) {
-    for (let y = -14; y <= 14; y += 3) {
+test('pattern recurs with period 14 in both axes', () => {
+  for (let x = -16; x <= 16; x += 3) {
+    for (let y = -16; y <= 16; y += 3) {
       const p = premiumAt(x, y);
       assert.equal(premiumAt(x + PERIOD, y), p);
       assert.equal(premiumAt(x, y + PERIOD), p);
@@ -13,37 +13,43 @@ test('pattern recurs with period 12 in both axes', () => {
   }
 });
 
-test('word premiums dot the criss-crossing diagonals', () => {
-  assert.equal(premiumAt(0, 0), 'TW'); // u=0, v=0: diagonal intersection
-  assert.equal(premiumAt(6, 6), 'TW'); // u=12≡0, v=0
-  assert.equal(premiumAt(3, -3), 'DW'); // u=0, v=6
-  assert.equal(premiumAt(3, 3), 'DW'); // u=6, v=0
+test('the classic scrabble motifs are all present', () => {
+  // Triple-word corners and mid-edges.
+  assert.equal(premiumAt(0, 0), 'TW');
+  assert.equal(premiumAt(7, 0), 'TW');
+  assert.equal(premiumAt(0, 7), 'TW');
+  // Double-word diagonal X, including the board-centre star.
+  assert.equal(premiumAt(1, 1), 'DW');
+  assert.equal(premiumAt(4, 4), 'DW');
+  assert.equal(premiumAt(13, 13), 'DW'); // mirror of (1,1)
+  assert.equal(premiumAt(7, 7), 'DW');
+  // Triple-letter diamond.
+  assert.equal(premiumAt(5, 1), 'TL');
+  assert.equal(premiumAt(1, 5), 'TL');
+  assert.equal(premiumAt(5, 5), 'TL');
+  assert.equal(premiumAt(9, 13), 'TL'); // mirror of (5,1)
+  // Double-letter positions.
+  assert.equal(premiumAt(3, 0), 'DL');
+  assert.equal(premiumAt(6, 6), 'DL');
+  assert.equal(premiumAt(7, 3), 'DL');
+  assert.equal(premiumAt(2, 6), 'DL');
 });
 
-test('letter premiums sit between the word diagonals', () => {
-  assert.equal(premiumAt(6, 0), 'TL'); // u=6, v=6
-  assert.equal(premiumAt(3, 0), 'DL'); // u=3, v=3
-  assert.equal(premiumAt(0, 3), 'DL'); // u=3, v=9
-  assert.equal(premiumAt(6, 3), 'DL'); // u=9, v=3
-});
-
-test('the pattern is sparse between the dots', () => {
+test('the spaces between stay empty and density is classic-like', () => {
   assert.equal(premiumAt(1, 0), null);
   assert.equal(premiumAt(2, 0), null);
-  assert.equal(premiumAt(4, 0), null);
-  assert.equal(premiumAt(4, 4), null);
-  assert.equal(premiumAt(1, 1), null);
-  // Density stays well under a classic board's ~27%.
+  assert.equal(premiumAt(5, 0), null);
+  assert.equal(premiumAt(2, 1), null);
   let premium = 0;
-  const total = PERIOD * PERIOD;
   for (let x = 0; x < PERIOD; x++) {
     for (let y = 0; y < PERIOD; y++) if (premiumAt(x, y)) premium++;
   }
-  assert.ok(premium / total < 0.15, `density ${premium}/${total}`);
+  const density = premium / (PERIOD * PERIOD);
+  assert.ok(density > 0.15 && density < 0.35, `density ${density}`);
 });
 
 test('negative coordinates behave like positive ones', () => {
-  assert.equal(premiumAt(-6, 6), 'TW'); // u=0, v=-12≡0
-  assert.equal(premiumAt(-3, 3), 'DW');
-  assert.equal(premiumAt(-3, 0), 'DL'); // u=-3≡9, v=-3≡9
+  assert.equal(premiumAt(-14, 0), 'TW');
+  assert.equal(premiumAt(-1, -1), 'DW'); // ≡ (13,13), mirror of (1,1)
+  assert.equal(premiumAt(-3, 0), 'DL'); // ≡ (11,0), mirror of (3,0)
 });

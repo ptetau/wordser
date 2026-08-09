@@ -86,7 +86,6 @@ test('placing seven or more tiles earns the bingo bonus', () => {
     racks: [['a', 'b', 'c', 'd', 'e', 'f', 'g'], []],
   });
   const r = g.place({ playerId: 0, tiles: tilesFor('abcdefg', 0, 0) });
-  // TW at origin, DL under the d at (3,0), TL under the g at (6,0):
-  // (1+3+3+4+1+4+6) * 3, plus 50 bingo.
-  assert.equal(r.points, 22 * 3 + 50);
+  // TW at origin, DL under the d at (3,0): (1+3+3+4+1+4+2) * 3, plus 50 bingo.
+  assert.equal(r.points, 18 * 3 + 50);
 });

@@ -58,10 +58,10 @@ test('a longer steal can grab a fruit beyond the old word', () => {
   g.fruits.set('4,0', 'lemon');
   const r = g.stealReplace({ playerId: 1, x: 0, y: 0, dir: 'h', word: 'carts' });
   assert.deepEqual(r.fruits, ['lemon']);
-  assert.equal(g.fruits.size, 0);
+  assert.equal(g.fruits.has('4,0'), false);
 });
 
-test('fruits spawn on empty cells near the board, capped at three', () => {
+test('fruits spawn on empty cells near the board, capped at five', () => {
   const g = makeGame(['cat'], {
     players: ['Solo'],
     racks: [['c', 'a', 't', 'e', 'e', 'e', 'e']],
@@ -69,7 +69,7 @@ test('fruits spawn on empty cells near the board, capped at three', () => {
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   for (let i = 0; i < 40; i++) g.spawnFruit(1);
   assert.ok(g.fruits.size >= 1);
-  assert.ok(g.fruits.size <= 3);
+  assert.ok(g.fruits.size <= 5);
   for (const k of g.fruits.keys()) {
     const [x, y] = k.split(',').map(Number);
     assert.equal(g.board.get(x, y), null);
