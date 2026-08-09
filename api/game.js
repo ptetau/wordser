@@ -12,7 +12,6 @@ import { loadBundledDictionary } from '../public/engine/dictionary.js';
 import { buildWordList, takeCpuTurn } from '../public/cpu.js';
 
 const KEY = (id) => `wordser:game:${id}`;
-const GAME_TTL_SECONDS = 60 * 60 * 24 * 90;
 const MAX_PLAYERS = 16;
 
 let dictionaryPromise;
@@ -56,7 +55,7 @@ if cur then
   local c = cjson.decode(cur)
   if tostring(c.seq) ~= ARGV[2] then return 'CONFLICT' end
 elseif ARGV[2] ~= '0' then return 'CONFLICT' end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ${GAME_TTL_SECONDS})
+redis.call('SET', KEYS[1], ARGV[1])
 return 'OK'`;
   return {
     async get(key) {
@@ -72,7 +71,7 @@ return 'OK'`;
         dbsize: await call(['DBSIZE']),
       };
     },
-    /** Write `value` only if the stored seq still equals expectedSeq (0 = absent). */
+    /** Write `value` only if the stored seq still equals expectedSeq (0 = absent). Games never expire. */
     async put(key, value, expectedSeq) {
       const res = await call(['EVAL', CAS, '1', key, JSON.stringify(value), String(expectedSeq)]);
       return res === 'OK';
@@ -163,7 +162,8 @@ export async function handleAction(store, body) {
         hasUpstashUrl: Boolean(env.UPSTASH_REDIS_REST_URL),
         hasUpstashToken: Boolean(env.UPSTASH_REDIS_REST_TOKEN),
         redisHost: (env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL ?? '').replace(/^https?:\/\//, '').slice(0, 12),
-        storeKind: store?.diag ? 'redis' : 'no-diag',
+        storeKind: store?.diag ? 'redis' : 'memory',
+        envNames: Object.keys(env).filter((k) => /redis|kv|upstash|storage/i.test(k)).sort(),
       };
       try {
         const probe = store.diag ? await store.diag(KEY(body?.id ?? '')) : {};

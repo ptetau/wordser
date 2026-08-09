@@ -1,14 +1,19 @@
-// Tiny server for local play: `npm start`, then open http://localhost:8080/
-// Serves public/ (same layout Vercel deploys) and mounts the online-play API
-// against an in-memory store so internet play can be exercised locally.
+// The wordser server: serves public/ and the online-play API.
+//
+// This entrypoint runs BOTH locally (`npm start`) and on Vercel, whose Node
+// server detection runs it in production. The store therefore prefers real
+// Redis whenever the environment provides it, and only falls back to the
+// in-memory store for local development — an in-memory store on a serverless
+// runtime silently loses every game when the instance recycles.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { handleAction, memoryStore } from './api/game.js';
+import { handleAction, envStore, memoryStore } from './api/game.js';
 
 const ROOT = new URL('./public/', import.meta.url).pathname;
 const PORT = process.env.PORT ?? 8080;
-const store = memoryStore();
+const store = envStore() ?? memoryStore();
+console.log(`wordser store: ${store.diag ? 'redis' : 'in-memory (local dev only)'}`);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
