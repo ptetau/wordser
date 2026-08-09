@@ -9,6 +9,7 @@
 
 import { Game, GameError } from '../public/engine/game.js';
 import { loadBundledDictionary } from '../public/engine/dictionary.js';
+import { buildWordList, takeCpuTurn } from '../public/cpu.js';
 
 const KEY = (id) => `wordser:game:${id}`;
 const GAME_TTL_SECONDS = 60 * 60 * 24 * 90;
@@ -16,6 +17,22 @@ const MAX_PLAYERS = 16;
 
 let dictionaryPromise;
 const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());
+let cpuWordsPromise;
+const cpuWords = () => (cpuWordsPromise ??= dictionary().then(buildWordList));
+
+/** Let every eligible CPU seat take one turn (same rules as the client). */
+function runCpuTurns(game, wordList) {
+  for (const p of game.players) {
+    if (!p.isCpu) continue;
+    if (game.players.length > 1 && game.lastPlayerId === p.id) continue;
+    const r = takeCpuTurn(game, p.id, wordList);
+    if (!r && game.lastPlayerId != null && !game.players[game.lastPlayerId]?.isCpu) {
+      // A stuck CPU passes so the friend rule can't deadlock the humans.
+      game.log.push(`${p.name} couldn't find a word and passes`);
+      game.lastPlayerId = null;
+    }
+  }
+}
 
 // ---------------------------------------------------------------- storage
 
@@ -109,7 +126,7 @@ async function loadGame(record) {
 /**
  * Handle one API action against a store. Returns { status, data }.
  * Actions: create {name} · join {id, name} · state {id, playerId, token, since}
- *        · move {id, playerId, token, move}
+ *        · move {id, playerId, token, move} · addcpu {id, playerId, token}
  */
 export async function handleAction(store, body) {
   try {
@@ -154,6 +171,25 @@ export async function handleAction(store, body) {
     const playerId = Number(body?.playerId);
     authPlayer(record, playerId, body?.token);
 
+    if (action === 'addcpu') {
+      if (record.game.players.length >= MAX_PLAYERS) {
+        return { status: 400, data: { error: 'this game is full' } };
+      }
+      const game = await loadGame(record);
+      const n = game.players.filter((p) => p.isCpu).length + 1;
+      const cpu = game.addPlayer(`Robo ${n} 🤖`);
+      cpu.isCpu = true;
+      game.log.push(`${cpu.name} joined the game`);
+      runCpuTurns(game, await cpuWords());
+      const data = game.toJSON();
+      record.game.players.forEach((p, i) => (data.players[i].token = p.token));
+      const next = { id: record.id, seq: record.seq + 1, game: data };
+      if (!(await store.put(KEY(record.id), next, record.seq))) {
+        return { status: 409, data: { error: 'the game changed underneath you — try again' } };
+      }
+      return { status: 200, data: view(next, playerId) };
+    }
+
     if (action === 'state') {
       const game = await loadGame(record);
       if (game.rolloverIfNeeded()) {
@@ -175,6 +211,9 @@ export async function handleAction(store, body) {
     if (action === 'move') {
       const game = await loadGame(record);
       const result = game.apply({ ...body.move, playerId });
+      if (body.move?.type !== 'choose' && game.players.some((p) => p.isCpu)) {
+        runCpuTurns(game, await cpuWords());
+      }
       const data = game.toJSON();
       record.game.players.forEach((p, i) => (data.players[i].token = p.token));
       const next = { id: record.id, seq: record.seq + 1, game: data };

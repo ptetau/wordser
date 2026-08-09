@@ -74,4 +74,10 @@ export class Online {
       action: 'move', id: this.id, playerId: this.playerId, token: this.token, move,
     });
   }
+
+  addCpu() {
+    return api({
+      action: 'addcpu', id: this.id, playerId: this.playerId, token: this.token,
+    });
+  }
 }

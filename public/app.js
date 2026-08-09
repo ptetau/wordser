@@ -5,8 +5,7 @@ import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
-import { THEMES, DEFAULT_THEME } from './themes/index.js';
-import midnight from './themes/midnight.js';
+import parlour from './themes/parlour.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('board');
@@ -59,31 +58,11 @@ const cam = { x: -400, y: -300, cell: 46 };
 
 const PREMIUM_TEXT = { TW: '3×W', DW: '2×W', TL: '3×L', DL: '2×L' };
 
-// ------------------------------------------------------------------- themes
-let theme = midnight;
+// ------------------------------------------------------------------- theme
+const theme = parlour;
 const T = () => theme.canvas;
-
-function applyTheme(t) {
-  theme = t;
-  for (const [k, v] of Object.entries(t.css ?? {})) {
-    document.documentElement.style.setProperty(k, v);
-  }
-  try {
-    localStorage.setItem('wordser:theme', t.id);
-  } catch {}
-  const sel = $('theme-select');
-  if (sel) sel.value = t.id;
-  refresh();
-}
-
-async function loadTheme(id) {
-  const load = THEMES[id] ?? THEMES[DEFAULT_THEME];
-  try {
-    applyTheme((await load()).default);
-  } catch (err) {
-    console.error('theme failed to load', err);
-    applyTheme(midnight);
-  }
+for (const [k, v] of Object.entries(theme.css ?? {})) {
+  document.documentElement.style.setProperty(k, v);
 }
 
 /** A per-cell stable hash for texture jitter (grain, speckle). */
@@ -552,6 +531,7 @@ function renderOnline() {
   $('join-controls').hidden = !(pendingJoinId !== null && !online());
   $('online-controls').hidden = online() || pendingJoinId !== null;
   $('online-name').hidden = online();
+  $('cpu-section').hidden = pendingJoinId !== null;
   $('share').hidden = !online();
   document.body.classList.toggle(
     'no-game',
@@ -1211,8 +1191,17 @@ $('add-player-form').addEventListener('submit', (e) => {
   refresh();
 });
 
-$('add-cpu').addEventListener('click', () => {
-  if (online()) return;
+$('add-cpu').addEventListener('click', async () => {
+  if (online()) {
+    try {
+      const d = await session.addCpu();
+      adoptView(d);
+      status('a CPU player joined 🤖', 'good');
+    } catch (err) {
+      showError(err);
+    }
+    return;
+  }
   cpuWordList ??= buildWordList(dictionary);
   const n = game.players.filter((p) => p.isCpu).length + 1;
   const p = game.addPlayer(`Robo ${n} 🤖`);
@@ -1307,25 +1296,6 @@ $('end-day').addEventListener('click', () => {
 if (savedName) {
   $('online-name').value = savedName;
   $('player-name').value = savedName;
-}
-
-const themeSelect = $('theme-select');
-for (const id of Object.keys(THEMES)) {
-  const opt = document.createElement('option');
-  opt.value = id;
-  opt.textContent = id;
-  themeSelect.appendChild(opt);
-}
-themeSelect.addEventListener('change', () => loadTheme(themeSelect.value));
-{
-  const urlTheme = new URLSearchParams(location.search).get('theme');
-  let saved = null;
-  try {
-    saved = localStorage.getItem('wordser:theme');
-  } catch {}
-  const initial = urlTheme ?? saved ?? DEFAULT_THEME;
-  if (initial !== 'midnight') loadTheme(initial);
-  else applyTheme(midnight);
 }
 
 resize();

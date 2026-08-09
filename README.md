@@ -28,10 +28,11 @@ scroll to zoom. The arrow keys drive a board cursor (the viewport follows):
 type to start a word at the cursor, press Enter on a tile to steal/mutate
 it, and `+`/`-` zoom. Drag rack tiles to rearrange them (or ⇄ shuffle). Your name
 is remembered between visits, and a fresh game starts with the cursor
-already on the ★. **Add CPU player 🤖** gives local games a computer
-opponent that searches for real placements with the same rules engine.
-Four looks are available from the Theme menu (Parlour is the default);
-themes live in `public/themes/`.
+already on the ★. **Add CPU player 🤖** works in both modes: local games
+run the CPU in the browser, online games run it server-side — it takes its
+turn in the same request that applies yours, using the same rules-engine
+search. The game wears the Parlour look (mahogany tiles on green baize);
+alternative themes live in `public/themes/` for anyone who wants to swap.
 
 ```sh
 npm test           # engine + API test suite (node --test, no dependencies)

@@ -107,3 +107,27 @@ test('compare-and-set rejects stale writes', async () => {
   assert.equal(await store.put('k', { seq: 2 }, 5), false);
   assert.equal(await store.put('k', { seq: 2 }, 1), true);
 });
+
+test('a CPU seat can be added to an online game and plays for itself', async () => {
+  const store = memoryStore();
+  const ana = (await handleAction(store, { action: 'create', name: 'Ana' })).data;
+  const added = await handleAction(store, {
+    action: 'addcpu', id: ana.id, playerId: 0, token: ana.token,
+  });
+  assert.equal(added.status, 200);
+  const cpu = added.data.game.players[1];
+  assert.ok(cpu.isCpu);
+  assert.match(cpu.name, /Robo/);
+  // Ana had not played, so the CPU was free to open immediately.
+  assert.equal(added.data.game.lastPlayerId, 1);
+  assert.ok(added.data.game.cells.length >= 2);
+  // Nobody can act as the CPU: it has no token.
+  const bad = await handleAction(store, {
+    action: 'move', id: ana.id, playerId: 1, token: 'x',
+    move: { type: 'mutate', x: 0, y: 0, letter: 'q' },
+  });
+  assert.equal(bad.status, 403);
+  // Unauthenticated users can't add CPUs either.
+  const anon = await handleAction(store, { action: 'addcpu', id: ana.id, playerId: 0, token: 'nope' });
+  assert.equal(anon.status, 403);
+});
