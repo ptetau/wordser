@@ -382,6 +382,19 @@ function rackTap(letter) {
     }
     return;
   }
+  if (selected && requirePlayer()) {
+    // Start a new word from the selected tile: the cursor opens on it, and
+    // spelling consumes it in place.
+    placement = { sx: selected.x, sy: selected.y, dir: 'h', entries: [] };
+    selected = null;
+    if (letter === BLANK) {
+      pickingBlank = 'placement';
+      refresh();
+    } else {
+      typeLetter(letter);
+    }
+    return;
+  }
   status('tap an empty cell first to start a word', '');
 }
 
@@ -509,6 +522,14 @@ function renderActions() {
     b.onclick = fn;
     btns.appendChild(b);
   };
+  for (const dir of Object.keys(DIRS)) {
+    mkBtn(`Spell a word from here ${DIR_GLYPH[dir]}`, () => {
+      if (!requirePlayer()) return;
+      placement = { sx: selected.x, sy: selected.y, dir, entries: [] };
+      selected = null;
+      refresh();
+    });
+  }
   for (const dir of Object.keys(DIRS)) {
     const w = game.board.wordThrough(selected.x, selected.y, dir);
     if (w && w.cells.length >= 2) {
@@ -1077,7 +1098,9 @@ window.addEventListener('keydown', (e) => {
       selected = { ...kbCursor };
       refresh();
     }
-  } else if (/^[a-z]$/.test(key) && kbCursor && !game.board.get(kbCursor.x, kbCursor.y)) {
+  } else if (/^[a-z]$/.test(key) && kbCursor) {
+    // Works on occupied cells too: spelling consumes the tiles it crosses,
+    // so you can build a word straight off an existing letter.
     if (requirePlayer()) {
       selected = null;
       placement = { sx: kbCursor.x, sy: kbCursor.y, dir: 'h', entries: [] };
