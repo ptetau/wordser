@@ -86,7 +86,10 @@ function view(record, playerId) {
   const game = structuredClone(record.game);
   for (const p of game.players) {
     delete p.token;
-    if (p.id !== playerId) p.rack = p.rack.map(() => '?');
+    if (p.id !== playerId) {
+      p.rack = p.rack.map(() => '?');
+      delete p.pendingChoice;
+    }
   }
   return { seq: record.seq, id: record.id, you: playerId, game };
 }

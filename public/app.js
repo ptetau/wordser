@@ -1,4 +1,4 @@
-import { Game, GameError } from './engine/game.js';
+import { Game, GameError, FRUIT_EMOJI } from './engine/game.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
@@ -98,6 +98,15 @@ function render() {
     ctx.textAlign = 'right';
     ctx.fillText(String(v), sx + c - pad - 2, sy + c - pad - c * 0.12);
   };
+
+  for (const [k, type] of game.fruits) {
+    const [x, y] = k.split(',').map(Number);
+    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+    ctx.font = `${Math.floor(c * 0.62)}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(FRUIT_EMOJI[type] ?? '🍇', (x - cam.x) * c + c / 2, (y - cam.y) * c + c / 2 + c * 0.04);
+  }
 
   for (const [k, tile] of game.board.cells) {
     const [x, y] = k.split(',').map(Number);
@@ -221,6 +230,27 @@ function rackTap(letter) {
 function renderActions() {
   const box = $('cell-actions');
   $('end-day').hidden = online();
+  const chooser = online()
+    ? game.players[session.playerId]
+    : game.players.find((p) => p.pendingChoice);
+  if (chooser?.pendingChoice) {
+    box.innerHTML = `<b>${FRUIT_EMOJI.cherry} Cherry${online() ? '' : ` for ${chooser.name}`}:</b> keep one letter:
+      <div id="cherry-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>`;
+    const picker = box.querySelector('#cherry-picker');
+    chooser.pendingChoice.forEach((l, index) => {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.className = 'tile' + (l === BLANK ? ' blank' : '');
+      t.innerHTML = l === BLANK ? '★<sub>0</sub>' : `${l}<sub>${LETTER_VALUES[l]}</sub>`;
+      t.onclick = () =>
+        doMove(
+          { type: 'choose', playerId: chooser.id, index },
+          (r) => `kept "${r.letter.toUpperCase()}" from the cherry ${FRUIT_EMOJI.cherry}`,
+        );
+      picker.appendChild(t);
+    });
+    return;
+  }
   if (mutating) {
     box.innerHTML =
       '<b>Mutate:</b> tap a rack tile (or type) to swap it in. <button id="cancel-mutate">✕ Cancel</button>';
@@ -343,11 +373,13 @@ async function doMove(move, describe) {
     return null;
   }
   try {
-    const r = game.apply({ ...move, playerId: currentPlayer });
+    const r = game.apply({ playerId: currentPlayer, ...move });
     cancelModes();
     selected = null;
     status(describe(r), 'good');
-    if (game.players.length > 1) currentPlayer = (currentPlayer + 1) % game.players.length;
+    if (move.type !== 'choose' && game.players.length > 1) {
+      currentPlayer = (currentPlayer + 1) % game.players.length;
+    }
     refresh();
     return r;
   } catch (err) {
@@ -377,7 +409,7 @@ function stealWord(w, dir) {
       word: word.trim().toLowerCase(),
       offset,
     },
-    (r) => `stole it for ${r.points} points${r.stolen ? `, pocketed ${r.stolen}` : ''}`,
+    (r) => `stole it for ${r.points} points${r.stolen ? `, pocketed ${r.stolen}` : ''}${fruitNote(r)}`,
   );
 }
 
@@ -402,8 +434,12 @@ function commitPlacement() {
   }
   doMove(
     { type: 'place', tiles, redefinitions },
-    (r) => `played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points`,
+    (r) => `played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
   );
+}
+
+function fruitNote(r) {
+  return r.fruits?.length ? ` — ate ${r.fruits.map((f) => FRUIT_EMOJI[f]).join(' ')}` : '';
 }
 
 function showError(err) {

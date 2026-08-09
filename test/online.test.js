@@ -44,9 +44,19 @@ test('create, join, and play a move over the wire', async () => {
 test('states are personalized: own rack visible, others masked, no tokens', async () => {
   const store = memoryStore();
   const { ana, ben } = await setupGame(store);
+  {
+    const record = await store.get(`wordser:game:${ana.id}`);
+    record.game.players[0].pendingChoice = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    await store.put(`wordser:game:${ana.id}`, record, record.seq);
+  }
   const s = (await handleAction(store, {
     action: 'state', id: ana.id, playerId: 0, token: ana.token,
   })).data;
+  const other = (await handleAction(store, {
+    action: 'state', id: ana.id, playerId: 1, token: ben.token,
+  })).data;
+  assert.equal(s.game.players[0].pendingChoice.length, 7);
+  assert.equal(other.game.players[0].pendingChoice, undefined);
   assert.equal(s.game.players[0].rack.length, 7);
   assert.ok(s.game.players[0].rack.every((l) => l !== '?'));
   assert.ok(s.game.players[1].rack.every((l) => l === '?'));

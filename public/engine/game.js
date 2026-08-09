@@ -24,6 +24,15 @@ export const RACK_TARGET = 7;
 export const RACK_MAX = 12;
 export const BINGO_BONUS = 50;
 
+// Bonus fruits appear on empty cells near the action, pac-man style. Cover
+// one with a newly placed tile to eat it.
+export const FRUIT_EMOJI = { lemon: '🍋', cherry: '🍒', chilli: '🌶️' };
+const FRUIT_CHANCE = 0.3;
+const MAX_FRUITS = 3;
+const FRUIT_RADIUS = 4;
+const CHERRY_CHOICES = 7;
+const FIERY_LETTERS = ['j', 'q', 'x', 'z'];
+
 export class GameError extends Error {}
 
 const fail = (msg) => {
@@ -50,6 +59,7 @@ export class Game {
     if (!dictionary) fail('a dictionary is required');
     this.dictionary = dictionary;
     this.board = new Board();
+    this.fruits = new Map(); // "x,y" -> fruit type, always on empty cells
     this.bag = new Bag(rng);
     this.players = [];
     this.lastPlayerId = null;
@@ -140,11 +150,79 @@ export class Game {
     return sum * mult;
   }
 
-  #commit(player, points, message) {
+  #commit(player, points, message, coveredKeys = []) {
     player.score += points;
     this.lastPlayerId = player.id;
     this.#refill(player);
     this.log.push(`${player.name}: ${message} (+${points})`);
+    const fruits = this.#collectFruits(player, coveredKeys);
+    this.spawnFruit();
+    return fruits;
+  }
+
+  /**
+   * Maybe drop a fruit on an empty cell near the existing tiles. Called after
+   * every move; tests can pass chance = 1 to force an attempt.
+   */
+  spawnFruit(chance = FRUIT_CHANCE) {
+    if (this.fruits.size >= MAX_FRUITS || this.board.isEmpty()) return null;
+    if (this.bag.rng() >= chance) return null;
+    const anchors = [...this.board.cells.keys()];
+    const [ax, ay] = anchors[Math.floor(this.bag.rng() * anchors.length)].split(',').map(Number);
+    for (let tries = 0; tries < 12; tries++) {
+      const x = ax + Math.floor(this.bag.rng() * (2 * FRUIT_RADIUS + 1)) - FRUIT_RADIUS;
+      const y = ay + Math.floor(this.bag.rng() * (2 * FRUIT_RADIUS + 1)) - FRUIT_RADIUS;
+      const k = Board.key(x, y);
+      if (this.board.get(x, y) || this.fruits.has(k)) continue;
+      const r = this.bag.rng();
+      const type = r < 0.5 ? 'lemon' : r < 0.75 ? 'cherry' : 'chilli';
+      this.fruits.set(k, type);
+      this.log.push(`a ${type} ${FRUIT_EMOJI[type]} appeared`);
+      return { x, y, type };
+    }
+    return null;
+  }
+
+  #collectFruits(player, keys) {
+    const collected = [];
+    for (const k of keys) {
+      const type = this.fruits.get(k);
+      if (!type) continue;
+      this.fruits.delete(k);
+      collected.push(type);
+      if (type === 'lemon') {
+        let n = 0;
+        while (n < 2 && player.rack.length < RACK_MAX) {
+          player.rack.push(this.bag.draw());
+          n++;
+        }
+        this.log.push(`${player.name} ate a lemon ${FRUIT_EMOJI.lemon}: ${n} extra letter${n === 1 ? '' : 's'}`);
+      } else if (type === 'chilli') {
+        const letter = FIERY_LETTERS[Math.floor(this.bag.rng() * FIERY_LETTERS.length)];
+        if (player.rack.length < RACK_MAX) player.rack.push(letter);
+        this.log.push(`${player.name} ate a chilli ${FRUIT_EMOJI.chilli}: a fiery "${letter.toUpperCase()}"`);
+      } else if (type === 'cherry') {
+        player.pendingChoice = Array.from({ length: CHERRY_CHOICES }, () => this.bag.draw());
+        this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}: choose one of ${CHERRY_CHOICES} letters`);
+      }
+    }
+    return collected;
+  }
+
+  /**
+   * Resolve a cherry: keep one of the offered letters. Not a play — it does
+   * not consume your turn or require a friend to have moved.
+   */
+  choosePendingLetter({ playerId, index }) {
+    const player = this.player(playerId);
+    const choice = player.pendingChoice ?? fail('no letter choice is pending');
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0 || i >= choice.length) fail('invalid choice');
+    const letter = choice[i];
+    delete player.pendingChoice;
+    if (player.rack.length < RACK_MAX) player.rack.push(letter);
+    this.log.push(`${player.name} kept "${letter.toUpperCase()}" from the cherry ${FRUIT_EMOJI.cherry}`);
+    return { letter };
   }
 
   /**
@@ -269,8 +347,8 @@ export class Game {
 
       player.rack = rackCopy;
       const main = formed.find((w) => w.dir === dir) ?? formed[0];
-      this.#commit(player, points, `played "${main.word.toUpperCase()}"`);
-      return { points, words: formed.map((w) => w.word) };
+      const fruits = this.#commit(player, points, `played "${main.word.toUpperCase()}"`, [...changed]);
+      return { points, words: formed.map((w) => w.word), fruits };
     } catch (err) {
       for (const t of placed) this.board.remove(t.x, t.y);
       for (const r of redefined) {
@@ -446,14 +524,23 @@ export class Game {
       if (w && w.cells.length >= 2) points += this.#scoreWord(w.cells, changed);
     }
 
-    this.#commit(
+    const coveredKeys = [];
+    for (let j = 0; j < L; j++) {
+      const idx = offset + j;
+      if (idx < 0 || idx >= oldLen) {
+        const c = spanCell(j);
+        coveredKeys.push(Board.key(c.x, c.y));
+      }
+    }
+    const fruits = this.#commit(
       player,
       points,
       `stole "${existing.word.toUpperCase()}" → "${newWord.toUpperCase()}"` +
         (stolen ? `, took ${stolen} letter${stolen === 1 ? '' : 's'}` : '') +
         (discarded ? `, discarded ${discarded}` : ''),
+      coveredKeys,
     );
-    return { points, stolen, discarded, word: newWord };
+    return { points, stolen, discarded, word: newWord, fruits };
   }
 
   /**
@@ -513,6 +600,8 @@ export class Game {
         return this.stealReplace(move);
       case 'mutate':
         return this.mutate(move);
+      case 'choose':
+        return this.choosePendingLetter(move);
       default:
         fail(`unknown move type: ${move?.type}`);
     }
@@ -529,6 +618,10 @@ export class Game {
         const [x, y] = k.split(',').map(Number);
         return { x, y, ...tile };
       }),
+      fruits: [...this.fruits.entries()].map(([k, type]) => {
+        const [x, y] = k.split(',').map(Number);
+        return { x, y, type };
+      }),
       log: [...this.log],
     };
   }
@@ -541,6 +634,7 @@ export class Game {
     game.lastPlayerId = data.lastPlayerId;
     game.players = data.players.map((p) => ({ ...p, rack: [...p.rack] }));
     for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
+    for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
     game.log = [...(data.log ?? [])];
     return game;
   }

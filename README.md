@@ -53,6 +53,11 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Wildcard redefinition.** A blank on the board may be redefined to a
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.
+- **Bonus fruits.** Pac-man style, fruits appear on empty cells near the
+  action (at most three at a time). Cover one with a newly placed letter to
+  eat it: 🍋 lemon feeds you two extra letters, 🌶️ chilli hands you a
+  high-scoring letter (J/Q/X/Z), 🍒 cherry lets you keep one letter from a
+  choice of seven. Eating a cherry's choice doesn't use your turn.
 - **Daily stars.** Scores reset every day (UTC). The player(s) with the top
   score of the day get a permanent ★ by their name.
 
