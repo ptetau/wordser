@@ -132,9 +132,23 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 .admin-tools .mini { min-width: 36px; min-height: 36px; padding: 2px 6px; opacity: 0.75; }
 .admin-tools .mini:hover { opacity: 1; }
 
-#rack { display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; }
+/* Two rows of slots, six across: the whole 12-tile rack is always in
+   view, and every letter has a place to sit rather than reflowing. */
+#rack {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: 46px;
+  gap: 6px;
+  min-height: 98px;
+  align-content: start;
+}
+#rack .slot {
+  border-radius: 6px;
+  border: 1px dashed color-mix(in srgb, var(--input-border) 70%, transparent);
+  background: color-mix(in srgb, var(--input-bg) 40%, transparent);
+}
 .tile {
-  width: 42px; height: 46px; border-radius: 6px;
+  width: 100%; height: 46px; border-radius: 6px;
   background: var(--tile-face); color: var(--tile-text);
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 20px; position: relative;
@@ -163,6 +177,15 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 @media (max-width: 340px) { .place-controls .lbl { display: none; } }
 .place-controls button.primary { background: #2f5e39; border-color: #3f7a4b; }
 .place-controls button.primary:hover { background: #387244; }
+#table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+#table-rules label {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 13px; color: var(--muted); cursor: pointer;
+  padding: 6px 2px; min-height: 40px;
+}
+#table-rules input { width: 18px; height: 18px; min-height: 0; accent-color: var(--accent); }
+#table-rules label[hidden] { display: none; }
+
 #end-day {
   margin-top: 10px; width: 100%; font-size: 13px;
   background: transparent; border-color: var(--panel-border); color: var(--muted);
@@ -185,6 +208,7 @@ details li { margin: 6px 0; }
 }
 .letter-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .tile.small { width: 36px; height: 40px; font-size: 16px; }
+.letter-grid .tile, #cherry-picker .tile { width: 36px; }
 .tile:disabled { opacity: 0.25; cursor: default; }
 .tile:disabled:hover { filter: none; }
 .preview-ok { color: #9fd48a; font-weight: 600; }
@@ -202,7 +226,16 @@ details li { margin: 6px 0; }
 #setup-summary::before { content: '▸'; font-size: 10px; }
 #setup-details[open] #setup-summary::before { content: '▾'; }
 #setup-details > section { margin-top: 8px; }
-#setup-details #end-day { margin-top: 8px; }
+#setup-details #table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+#table-rules label {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 13px; color: var(--muted); cursor: pointer;
+  padding: 6px 2px; min-height: 40px;
+}
+#table-rules input { width: 18px; height: 18px; min-height: 0; accent-color: var(--accent); }
+#table-rules label[hidden] { display: none; }
+
+#end-day { margin-top: 8px; }
 
 /* Until a game exists, lead with setup and hide empty game sections. */
 .no-game #rack-section, .no-game #actions-section,
@@ -238,7 +271,9 @@ details li { margin: 6px 0; }
   #actions-section { order: -2; }
   #players-section { order: -1; }
   #log { max-height: 90px; }
-  .tile { width: 48px; height: 52px; font-size: 22px; }
+  #rack { grid-auto-rows: 52px; min-height: 110px; }
+  .tile { height: 52px; font-size: 22px; }
+  .tile.small { width: 40px; }
   .tile.small { width: 40px; height: 44px; font-size: 17px; }
   .place-controls button { min-height: 44px; }
   .admin-tools .mini { min-width: 44px; min-height: 44px; }

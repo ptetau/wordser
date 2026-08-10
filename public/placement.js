@@ -57,3 +57,56 @@ export function defaultDirection(board, x, y, { rackSize = 7, lastDir = 'h' } = 
   // Nothing to go on: stay predictable rather than guess.
   return lastDir === 'v' ? 'v' : 'h';
 }
+
+/**
+ * Which way a word could actually be played from here. The geometry above
+ * says what a player probably means; this says what the board and their
+ * rack allow, and it wins when the two disagree — pointing at an axis
+ * where nothing can be spelled is worse than useless.
+ *
+ * Bounded on purpose: a handful of candidate words per direction, checked
+ * against the dictionary, is plenty to tell a live axis from a dead one,
+ * and it has to run on every tap.
+ */
+export function feasibleDirection(board, x, y, { rack = [], dictionary, lastDir = 'h', rackSize } = {}) {
+  const geometric = defaultDirection(board, x, y, { rackSize: rackSize ?? rack.length, lastDir });
+  if (!dictionary || !rack.length) return geometric;
+  const score = (dir) => countPlayable(board, x, y, dir, rack, dictionary);
+  const across = score('h');
+  const down = score('v');
+  if (across === down) return geometric; // no opinion: fall back to the shape
+  const feasible = across > down ? 'h' : 'v';
+  // Only overrule the geometry when it points somewhere truly dead.
+  return score(geometric) === 0 ? feasible : geometric;
+}
+
+/** How many of a few quick candidate words would be legal along `dir`. */
+function countPlayable(board, x, y, dir, rack, dictionary) {
+  const [dx, dy] = DIRS[dir];
+  const letters = rack.filter((l) => l !== '*');
+  if (!letters.length) return 0;
+  let found = 0;
+  // Read what is already on this line around the cell, then try short words
+  // that fit the gap: enough to know whether anything can go here at all.
+  for (let len = 2; len <= 4 && found < 2; len++) {
+    for (let start = -(len - 1); start <= 0 && found < 2; start++) {
+      const word = [];
+      let usable = true;
+      for (let i = 0; i < len; i++) {
+        const cx = x + (start + i) * dx;
+        const cy = y + (start + i) * dy;
+        const sitting = board.get(cx, cy);
+        if (sitting) word.push(sitting.isBlank ? sitting.as : sitting.letter);
+        else if (word.length < len) word.push(null); // a blank to fill from the rack
+        if (word.length > len) usable = false;
+      }
+      if (!usable) continue;
+      // Try the rack in the holes, first fit only — this is a smell test.
+      const pool = [...letters];
+      const filled = word.map((l) => (l === null ? pool.shift() : l));
+      if (filled.some((l) => !l)) continue;
+      if (dictionary.has(filled.join(''))) found++;
+    }
+  }
+  return found;
+}

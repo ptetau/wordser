@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Board, WORLD } from '../public/engine/board.js';
-import { defaultDirection } from '../public/placement.js';
+import { defaultDirection, feasibleDirection } from '../public/placement.js';
 
 /** A board with the given letters laid down: [x, y, letter]. */
 const boardWith = (...tiles) => {
@@ -81,4 +81,29 @@ test('room is capped by the rack, so a small rack ties and defers to habit', () 
 test('a fully enclosed cell still answers', () => {
   const b = boardWith([0, 1, 'a'], [2, 1, 'b'], [1, 0, 'c'], [1, 2, 'd']);
   assert.ok(['h', 'v'].includes(defaultDirection(b, 1, 1)));
+});
+
+// ---------------------------------------------------- what is actually playable
+
+test('the arrow turns away from an axis nothing can be played on', () => {
+  // A vertical wall of Zs: hooking downward can only make ZZ-words, which
+  // this dictionary refuses, while across is wide open.
+  const b = new Board();
+  for (let y = -3; y <= 3; y++) if (y !== 0) b.set(1, y, { letter: 'z' });
+  const dict = { has: (w) => w === 'at' || w === 'cat' };
+  const dir = feasibleDirection(b, 0, 0, { rack: ['a', 't'], dictionary: dict });
+  assert.equal(dir, 'h');
+});
+
+test('geometry still wins when both directions can be played', () => {
+  const b = boardWith(...word('cat', 0, 0));
+  const dict = { has: () => true }; // everything is a word here
+  // Under the A: the hook is the natural read, and it is playable.
+  assert.equal(feasibleDirection(b, 1, 1, { rack: ['s', 'o'], dictionary: dict }), 'v');
+});
+
+test('without a dictionary or a rack it falls back to the shape', () => {
+  const b = boardWith(...word('cat', 0, 0));
+  assert.equal(feasibleDirection(b, 3, 0, { rack: [], dictionary: null }), 'h');
+  assert.equal(feasibleDirection(b, 1, 1, { rack: ['a'] }), 'v');
 });

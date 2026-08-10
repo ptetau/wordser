@@ -395,13 +395,19 @@ export const spawnScale = (u) =>
  * Draw one fruit whole: halo, the shadow it casts on the felt, then the
  * fruit itself. `spawn` is 0..1 through its arrival flourish, or null.
  */
-export function drawFruit(ctx, type, cx, cy, r, { spawn = null, alpha = 1 } = {}) {
+export function drawFruit(ctx, type, cx, cy, r, { spawn = null, alpha = 1, t = 0, seed = 0 } = {}) {
   const draw = FRUIT_DRAW[type];
   if (!draw) return;
   ctx.save();
   if (alpha !== 1) ctx.globalAlpha = alpha;
   const d = r * 3;
   ctx.drawImage(halo(FRUIT_HUE[type]), cx - d / 2, cy - d / 2, d, d);
+  // A slow bob and sway on its own phase. Position, never brightness:
+  // peripheral vision barely registers a 2px drift but flicker is agony.
+  const bob = Math.sin(t * 1.9 + seed) * r * 0.07;
+  const sway = Math.cos(t * 1.3 + seed * 1.7) * r * 0.04;
+  cx += sway;
+  cy += bob;
   const scale = spawn === null ? 1 : spawnScale(spawn);
   ctx.beginPath(); // contact shadow: it lies on the felt, it doesn't float
   ctx.ellipse(cx, cy + r * 1.02, r * 0.78 * scale, r * 0.2, 0, 0, TAU);

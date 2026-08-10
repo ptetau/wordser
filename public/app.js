@@ -1,10 +1,10 @@
-import { Game, GameError, FRUIT_EMOJI, START_CELL } from './engine/game.js';
+import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX } from './engine/game.js';
 const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin']);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
-import { defaultDirection } from './placement.js';
+import { feasibleDirection } from './placement.js';
 import { drawFruit } from './fruit.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
@@ -260,7 +260,7 @@ function render() {
     ctx.fillText(String(v), cx + c * 0.24, cy + c * 0.3);
   };
 
-  const lm = game.lastMove && !placement ? new Set(game.lastMove.keys) : null;
+  const lm = lastWordKeys();
 
   for (const [x, y] of visibleHexes()) {
     const [cx, cy] = hexCenter(x, y);
@@ -305,9 +305,12 @@ function render() {
       if (fruit) {
         // Fruit yield while you are spelling: your pending letters and the
         // cursor own the stage until you commit.
+        const key = Board.key(x, y);
         drawFruit(ctx, fruit, cx, cy, c * 0.32, {
-          spawn: spawnPhase(Board.key(x, y)),
+          spawn: spawnPhase(key),
           alpha: placement ? 0.62 : 1,
+          t: performance.now() / 1000,
+          seed: (wrapCoord(x) * 7 + wrapCoord(y) * 13) % 17, // its own rhythm
         });
       } else if (isStart) {
         ctx.fillStyle = T().star;
@@ -476,6 +479,13 @@ function renderRack() {
     t.onclick = () => rackTap(l, i);
     box.appendChild(t);
   });
+  // Fill the tray out to two full rows, so letters have somewhere to land
+  // and the panel doesn't jump about as the rack shrinks.
+  for (let i = rack.length; i < RACK_MAX; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    box.appendChild(slot);
+  }
   $('shuffle').hidden = !p;
 }
 
@@ -798,6 +808,11 @@ function renderOnline() {
   $('online-controls').hidden = online() || pendingJoinId !== null;
   $('online-name').hidden = online();
   $('cpu-section').hidden = pendingJoinId !== null;
+  $('fly-camera').checked = flyEnabled;
+  // Only the admin sets the table's rules, so only they see the switch.
+  const me = online() ? session.playerId : currentPlayer;
+  $('mode-row').hidden = !(game.players.length > 1 && game.isAdmin(me));
+  $('mode-turns').checked = game.mode === 'turns';
   // Only when it is the answer: alone at the table, having already played.
   const stuck = game.players.length === 1 && game.lastPlayerId === currentPlayer;
   if (!$('cpu-section').hidden && stuck) glint($('add-cpu'), 'cpu');
@@ -1241,7 +1256,7 @@ $('join-online').addEventListener('click', async () => {
   }
 });
 
-// The world is 512 cells wide; you can pan until nothing is familiar.
+// The world is 480 cells wide; you can pan until nothing is familiar.
 $('recentre').addEventListener('click', () => {
   cancelFlight();
   flyToCells(game.lastMove?.keys ?? [Board.key(game.startCell.x, game.startCell.y)], { force: true });
@@ -1380,8 +1395,9 @@ function tapCell({ x, y }) {
 
 /** Start spelling on an empty cell, guessing the direction from the board. */
 function startPlacement(x, y) {
-  const rackSize = game.players[currentPlayer]?.rack.length ?? 7;
-  return { sx: x, sy: y, dir: defaultDirection(game.board, x, y, { rackSize, lastDir }), entries: [] };
+  const rack = game.players[currentPlayer]?.rack ?? [];
+  const dir = feasibleDirection(game.board, x, y, { rack, dictionary, lastDir });
+  return { sx: x, sy: y, dir, entries: [] };
 }
 
 /** Shift the whole pending word by (dx, dy), keeping its letters. */
@@ -1469,6 +1485,22 @@ let seenBoardOnce = false;
 
 // ------------------------------------------------------------ camera flight
 const FLY_MS = 500;
+// Chasing the camera around is disorienting, so it stays put unless asked.
+// ⌖ always works, whatever this is set to.
+let flyEnabled = (() => {
+  try {
+    return localStorage.getItem('wordser:fly') === '1';
+  } catch {
+    return false;
+  }
+})();
+function setFly(on) {
+  flyEnabled = on;
+  try {
+    localStorage.setItem('wordser:fly', on ? '1' : '0');
+  } catch {}
+  if (!on) cancelFlight();
+}
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 let flight = null; // { fromX, fromY, toX, toY, t0 }
 
@@ -1549,9 +1581,33 @@ function stepFlight(now) {
   else flight = null;
 }
 
+// The whole of the last word played or altered, not just the cells that
+// changed — you want to see what the move said, and it stays lit while you
+// compose your reply.
+let lastWordCache = { move: null, keys: null };
+function lastWordKeys() {
+  const move = game.lastMove;
+  if (!move?.keys?.length) return null;
+  if (lastWordCache.move === move) return lastWordCache.keys;
+  const keys = new Set();
+  for (const k of move.keys) {
+    const [x, y] = k.split(',').map(Number);
+    keys.add(Board.key(x, y));
+    for (const dir of Object.keys(DIRS)) {
+      const w = game.board.wordThrough(x, y, dir);
+      if (w && w.cells.length >= 2) {
+        for (const c of w.cells) keys.add(Board.key(c.x, c.y));
+      }
+    }
+  }
+  lastWordCache = { move, keys };
+  return keys;
+}
+
 /** Fly to whatever was played last, wherever it came from. */
 function showLastMove() {
   if (placement || mutating || exchanging) return; // mid-move: don't move the view
+  if (!flyEnabled) return; // off by default: the board stays where you put it
   flyToCells(game.lastMove?.keys);
 }
 
@@ -1941,6 +1997,23 @@ function endRackDrag(e) {
 rackBox.addEventListener('pointerup', endRackDrag);
 rackBox.addEventListener('pointercancel', endRackDrag);
 
+$('fly-camera').addEventListener('change', (e) => {
+  setFly(e.target.checked);
+  status(
+    e.target.checked
+      ? 'the view will glide to each new word'
+      : 'the view will stay where you put it — ⌖ still jumps to the last word',
+    '',
+  );
+});
+
+$('mode-turns').addEventListener('change', (e) => {
+  const mode = e.target.checked ? 'turns' : 'free';
+  doMove({ type: 'mode', mode }, (r) =>
+    r.mode === 'turns' ? 'strict turns 🔁' : 'free-for-all — play whenever a friend has 🎲',
+  );
+});
+
 $('shuffle').addEventListener('click', () => {
   markUsed('shuffle');
   const p = game.players[currentPlayer];
@@ -1992,5 +2065,6 @@ window.wordser = {
   get cursor() { return kbCursor; },
   refresh,
   showLastMove,
+  lastWordKeys,
   cam,
 };
