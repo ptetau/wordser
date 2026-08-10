@@ -307,6 +307,9 @@ function render() {
         ctx.arc(cx, cy, c * 0.4, 0, Math.PI * 2);
         ctx.fillStyle = T().fruitRing;
         ctx.fill();
+        // Opaque again before the glyph: a colour emoji is painted through
+        // the fill's alpha, and the ring's 45% left the fruit a ghost.
+        ctx.fillStyle = '#fff';
         // Keep fruit legible even zoomed far out.
         ctx.font = `${Math.max(16, Math.floor(c * 0.68))}px ${EMOJI_FONT}`;
         ctx.textAlign = 'center';
