@@ -43,11 +43,13 @@ test('the CPU respects the friend rule and exchanges when stuck', () => {
   const r = takeCpuTurn(g, 1, words, mulberry32(1));
   assert.equal(r.exchanged, 7);
   assert.ok(!g.players[1].rack.every((l) => l === 'z'));
-  // When the bag can't cover an exchange either, the CPU reports stuck.
+  // When the bag can't cover an exchange either, the CPU passes.
   g.lastPlayerId = null;
   g.bag.pool = [];
   g.players[1].rack = ['z', 'z', 'z', 'z', 'z', 'z', 'z'];
-  assert.equal(takeCpuTurn(g, 1, words, mulberry32(1)), null);
+  const r2 = takeCpuTurn(g, 1, words, mulberry32(1));
+  assert.equal(r2.passed, true);
+  assert.equal(g.lastPlayerId, 1);
 });
 
 test('the CPU resolves a cherry by keeping the most valuable letter', () => {

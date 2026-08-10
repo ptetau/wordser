@@ -130,12 +130,19 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
   return tryExchange(game, playerId);
 }
 
-/** Nothing playable: swap the rack for fresh letters if the bag allows. */
+/** Nothing playable: exchange what the bag can cover, otherwise pass. */
 function tryExchange(game, playerId) {
-  const letters = game.players[playerId].rack.slice(0, RACK_TARGET);
-  if (!letters.length) return null;
+  const rack = game.players[playerId].rack;
+  const n = Math.min(rack.length, game.bag.pool.length, RACK_TARGET);
+  if (n > 0) {
+    try {
+      return game.exchange({ playerId, letters: rack.slice(0, n) });
+    } catch (err) {
+      if (!(err instanceof GameError)) throw err;
+    }
+  }
   try {
-    return game.exchange({ playerId, letters });
+    return game.pass({ playerId });
   } catch (err) {
     if (err instanceof GameError) return null;
     throw err;

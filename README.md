@@ -57,10 +57,12 @@ npm test           # engine + API test suite (node --test, no dependencies)
   the day's bag runs dry there are no more draws until tomorrow (steals
   and mutations still work — board letters become the economy). Placing
   7+ tiles earns a 50-point bingo.
-- **Exchanging.** Instead of playing a word, swap 1–7 rack letters back
-  into the bag for fresh ones. It uses your turn, and needs the bag to
-  hold at least as many tiles as you give back. A stuck CPU exchanges
-  rather than passing when it can.
+- **Exchanging and passing.** Instead of playing a word, swap 1–7 rack
+  letters back into the bag for fresh ones (needs the bag to hold at
+  least that many), or pass outright. Both use your turn. When the bag
+  is empty and every player passes in a row, **the day ends early** —
+  stars are awarded, a fresh bag arrives, racks are re-dealt, and the ★
+  moves. A stuck CPU exchanges what the bag can cover, else passes.
 - **Stealing.** Replace any word on the board with your own word laid along
   the same line (it may be shorter or longer, and must overlap the word it
   replaces; every resulting word must be real). Old letters you reuse stay on

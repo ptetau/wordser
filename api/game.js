@@ -20,17 +20,16 @@ const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());
 let cpuWordsPromise;
 const cpuWords = () => (cpuWordsPromise ??= dictionary().then(buildWordList));
 
-/** Let every eligible CPU seat take one turn (same rules as the client). */
+/**
+ * Let every eligible CPU seat take one turn (same rules as the client).
+ * takeCpuTurn itself falls back to exchanging and then passing, so an
+ * eligible CPU always resolves its turn one way or another.
+ */
 function runCpuTurns(game, wordList) {
   for (const p of game.players) {
     if (!p.isCpu) continue;
     if (game.players.length > 1 && game.lastPlayerId === p.id) continue;
-    const r = takeCpuTurn(game, p.id, wordList);
-    if (!r && game.lastPlayerId != null && !game.players[game.lastPlayerId]?.isCpu) {
-      // A stuck CPU passes so the friend rule can't deadlock the humans.
-      game.log.push(`${p.name} couldn't find a word and passes`);
-      game.lastPlayerId = null;
-    }
+    takeCpuTurn(game, p.id, wordList);
   }
 }
 

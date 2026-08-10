@@ -81,6 +81,7 @@ export class Game {
     this.#seedFruits();
     this.players = [];
     this.lastPlayerId = null;
+    this.passed = new Set(); // players who passed since the last real move
     this.day = 1;
     this.now = now ?? (() => Date.now());
     this.dateKey = this.#dateKey();
@@ -147,6 +148,7 @@ export class Game {
     this.log.push(`the start star ★ moved and everyone drew a fresh rack`);
     this.day += 1;
     this.lastPlayerId = null;
+    this.passed.clear();
     this.dateKey = this.#dateKey();
     return winners;
   }
@@ -193,6 +195,7 @@ export class Game {
   #commit(player, points, message, coveredKeys = []) {
     player.score += points;
     this.lastPlayerId = player.id;
+    this.passed.clear();
     this.#refill(player);
     this.log.push(`${player.name}: ${message} (+${points})`);
     const fruits = this.#collectFruits(player, coveredKeys);
@@ -337,8 +340,29 @@ export class Game {
     this.bag.pool.push(...letters);
     player.rack = rackCopy;
     this.lastPlayerId = player.id;
+    this.passed.clear();
     this.log.push(`${player.name}: exchanged ${letters.length} letter${letters.length === 1 ? '' : 's'} (+0)`);
     return { exchanged: letters.length, drawn: drawn.length, points: 0 };
+  }
+
+  /**
+   * Pass move: give up the turn. When today's bag is empty and every player
+   * has passed since the last real move, the day ends early — stars are
+   * awarded, a fresh bag arrives, and racks are re-dealt.
+   */
+  pass({ playerId }) {
+    this.#maybeRollover();
+    const player = this.player(playerId);
+    this.#assertCanPlay(player);
+    this.lastPlayerId = player.id;
+    this.passed.add(player.id);
+    this.log.push(`${player.name}: passed`);
+    if (this.bag.pool.length === 0 && this.passed.size >= this.players.length) {
+      this.log.push('everyone passed on an empty bag — the day ends early');
+      this.startNewDay();
+      return { passed: true, dayEnded: true, points: 0 };
+    }
+    return { passed: true, dayEnded: false, points: 0 };
   }
 
   /**
@@ -742,6 +766,8 @@ export class Game {
         return this.mutate(move);
       case 'exchange':
         return this.exchange(move);
+      case 'pass':
+        return this.pass(move);
       case 'choose':
         return this.choosePendingLetter(move);
       default:
@@ -766,6 +792,7 @@ export class Game {
       }),
       lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
       startCell: { ...this.startCell },
+      passed: [...this.passed],
       bag: [...this.bag.pool].sort().join(''),
       log: [...this.log],
     };
@@ -784,6 +811,7 @@ export class Game {
     game.lastMove = data.lastMove ?? null;
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
     if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
+    game.passed = new Set(data.passed ?? []);
     game.log = [...(data.log ?? [])];
     return game;
   }

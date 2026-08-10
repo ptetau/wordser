@@ -556,6 +556,18 @@ function renderActions() {
         refresh();
       };
       box.appendChild(ex);
+      const bagEmpty = game.bag.pool.length === 0;
+      const pass = document.createElement('button');
+      pass.id = 'pass-btn';
+      pass.style.cssText = 'display:block;width:100%;margin-top:6px';
+      pass.textContent = bagEmpty
+        ? '⏭ Pass — the bag is empty; if everyone passes, the day ends'
+        : '⏭ Pass turn';
+      pass.onclick = () =>
+        doMove({ type: 'pass' }, (r) =>
+          r.dayEnded ? 'everyone passed — a new day begins! ★' : 'passed',
+        );
+      box.appendChild(pass);
     }
     return;
   }
@@ -805,16 +817,13 @@ function runCpuTurns() {
     if (r) {
       acted = true;
       status(
-        r.exchanged
-          ? `${p.name} exchanged ${r.exchanged} letters`
-          : `${p.name} played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
+        r.passed
+          ? `${p.name} passed${r.dayEnded ? ' — everyone passed, a new day begins! ★' : ''}`
+          : r.exchanged
+            ? `${p.name} exchanged ${r.exchanged} letters`
+            : `${p.name} played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
         '',
       );
-    } else if (game.lastPlayerId != null && !game.players[game.lastPlayerId].isCpu) {
-      // A stuck CPU passes so the friend rule can't deadlock its humans.
-      status(`${p.name} couldn't find a word and passes`, '');
-      game.lastPlayerId = null;
-      acted = true;
     }
   }
   if (acted) {
