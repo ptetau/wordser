@@ -752,11 +752,12 @@ function adoptView(d) {
   seq = d.seq;
   game = Game.fromJSON(d.game, { dictionary });
   currentPlayer = session.playerId;
-  // Someone else's move arrived: announce it and bring it into view.
-  if (changed && game.lastMove && game.lastMove.playerId !== session.playerId && !placement) {
-    const [x, y] = game.lastMove.keys[0].split(',').map(Number);
-    ensureVisible(x, y);
-    if (game.log.length) status(game.log[game.log.length - 1], '');
+  // A move landed: fly to it, and announce anyone else's.
+  if (changed && game.lastMove) {
+    showLastMove();
+    if (game.lastMove.playerId !== session.playerId && !placement && game.log.length) {
+      status(game.log[game.log.length - 1], '');
+    }
   }
   document.title =
     online() && game.players.length > 1 && game.lastPlayerId !== session.playerId
@@ -799,6 +800,7 @@ async function doMove(move, describe) {
       }
       setTimeout(runCpuTurns, 650);
     }
+    showLastMove();
     refresh();
     return r;
   } catch (err) {
@@ -917,10 +919,7 @@ function runCpuTurns() {
     }
   }
   if (acted) {
-    if (game.lastMove?.keys?.length && !placement) {
-      const [x, y] = game.lastMove.keys[0].split(',').map(Number);
-      ensureVisible(x, y);
-    }
+    showLastMove();
     refresh();
   }
 }
@@ -1054,6 +1053,7 @@ let drag = null;
 let pinch = null;
 
 canvas.addEventListener('pointerdown', (e) => {
+  cancelFlight(); // touching the board takes the camera back
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) {
@@ -1167,6 +1167,7 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
+    cancelFlight();
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -1184,8 +1185,97 @@ const ARROWS = {
   arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1],
 };
 
+// ------------------------------------------------------------ camera flight
+const FLY_MS = 500;
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+let flight = null; // { fromX, fromY, toX, toY, t0 }
+
+/** Stop any camera flight — the moment you touch the view, it's yours. */
+function cancelFlight() {
+  flight = null;
+}
+
+/**
+ * The world wraps, so a cell has a copy every WORLD cells in each
+ * direction. Pick the one nearest the point we're looking at, so the
+ * camera takes the short way round the seam instead of crossing the world.
+ */
+function nearestCopy(v, to, span) {
+  let best = v;
+  for (const k of [-1, 0, 1]) {
+    const c = v + k * span;
+    if (Math.abs(c - to) < Math.abs(best - to)) best = c;
+  }
+  return best;
+}
+
+/**
+ * Glide the camera until the cells of the move just played sit in the
+ * middle of the view. Already comfortably on screen? Then stay put —
+ * nothing is more annoying than the board sliding under your own move.
+ */
+function flyToCells(keys) {
+  if (!keys?.length || !canvas.clientWidth) return;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const span = WORLD * cam.cell;
+  const viewX = cam.x + w / 2;
+  const viewY = cam.y + h / 2;
+
+  // Unwrap the word around its first cell, then centre its bounding box.
+  const [x0, y0] = keys[0].split(',').map(Number);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const k of keys) {
+    const [x, y] = k.split(',').map(Number);
+    const px = nearestCopy(x * cam.cell + cam.cell / 2, x0 * cam.cell + cam.cell / 2, span);
+    const py = nearestCopy(y * cam.cell + cam.cell / 2, y0 * cam.cell + cam.cell / 2, span);
+    minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+    minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+  }
+  const cx = nearestCopy((minX + maxX) / 2, viewX, span);
+  const cy = nearestCopy((minY + maxY) / 2, viewY, span);
+  const halfW = (maxX - minX) / 2;
+  const halfH = (maxY - minY) / 2;
+
+  // Comfortably visible = the whole word, plus a cell of breathing room.
+  const m = cam.cell;
+  const onScreen =
+    cx - halfW - m > cam.x && cx + halfW + m < cam.x + w &&
+    cy - halfH - m > cam.y && cy + halfH + m < cam.y + h;
+  if (onScreen) return;
+
+  const toX = cx - w / 2;
+  const toY = cy - h / 2;
+  if (reducedMotion?.matches) {
+    cam.x = toX;
+    cam.y = toY;
+    render();
+    return;
+  }
+  flight = { fromX: cam.x, fromY: cam.y, toX, toY, t0: performance.now() };
+  requestAnimationFrame(stepFlight);
+}
+
+function stepFlight(now) {
+  if (!flight) return;
+  const t = Math.min(1, (now - flight.t0) / FLY_MS);
+  const e = 1 - (1 - t) ** 3; // ease out: quick away, gentle arrival
+  cam.x = flight.fromX + (flight.toX - flight.fromX) * e;
+  cam.y = flight.fromY + (flight.toY - flight.fromY) * e;
+  render();
+  if (t < 1) requestAnimationFrame(stepFlight);
+  else flight = null;
+}
+
+/** Fly to whatever was played last, wherever it came from. */
+function showLastMove() {
+  if (placement || mutating || exchanging) return; // mid-move: don't move the view
+  flyToCells(game.lastMove?.keys);
+}
+
 /** Pan the camera the minimum needed to keep hex (x, y) comfortably visible. */
 function ensureVisible(x, y) {
+  cancelFlight();
   const [cx, cy] = hexCenter(x, y);
   const m = cam.cell * 2;
   if (cx < m) cam.x += cx - m;
@@ -1288,6 +1378,7 @@ window.addEventListener('keydown', (e) => {
       typeLetter(key);
     }
   } else if (key === '+' || key === '=' || key === '-') {
+    cancelFlight();
     const mx = canvas.clientWidth / 2;
     const my = canvas.clientHeight / 2;
     const s2 = Math.min(80, Math.max(20, cam.cell * (key === '-' ? 0.9 : 1.1)));
@@ -1518,5 +1609,6 @@ window.wordser = {
   get session() { return session; },
   get cursor() { return kbCursor; },
   refresh,
+  showLastMove,
   cam,
 };

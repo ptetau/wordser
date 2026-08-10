@@ -119,8 +119,10 @@ test('a kiwi takes a real wildcard from the bag, and fizzles once both are out',
   const before = census(g);
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assertConserved(g, before, 'kiwi');
+  // Conservation above already proves it wasn't conjured; the rack refill
+  // may well have drawn the other one, so only count the pair as a whole.
   assert.equal(g.players[0].rack.includes(BLANK), true);
-  assert.equal(g.bag.pool.filter((l) => l === BLANK).length, 1);
+  assert.equal(census(g).get(BLANK), 2);
 
   // With no wildcards left in the bag, the kiwi has nothing to give.
   const g2 = makeGame(['cat']);

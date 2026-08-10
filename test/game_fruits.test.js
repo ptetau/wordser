@@ -115,17 +115,61 @@ test('fruits and pending choices survive serialization', () => {
   assert.equal(letter, 'a');
 });
 
-test('a fresh world is seeded with well-spaced fruits', () => {
-  const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(9) });
-  assert.equal(g.fruits.size, 12);
-  assert.equal(g.fruits.has('0,0'), false);
-  const spots = [...g.fruits.keys()].map((k) => k.split(',').map(Number));
-  for (let i = 0; i < spots.length; i++) {
-    for (let j = i + 1; j < spots.length; j++) {
-      const dx = Math.abs(spots[i][0] - spots[j][0]);
-      const dy = Math.abs(spots[i][1] - spots[j][1]);
-      const d = Math.max(Math.min(dx, 120 - dx), Math.min(dy, 120 - dy));
-      assert.ok(d >= 14, `fruits ${i} and ${j} bunch at distance ${d}`);
+/** Toroidal chebyshev distance, the metric the seeder works in. */
+const dist = (a, b) => {
+  const dx = Math.abs(a[0] - b[0]);
+  const dy = Math.abs(a[1] - b[1]);
+  return Math.max(Math.min(dx, 120 - dx), Math.min(dy, 120 - dy));
+};
+const spotsOf = (g) => [...g.fruits.keys()].map((k) => k.split(',').map(Number));
+
+test('a fresh world seeds its fruit within reach of the star, without bunching', () => {
+  for (const seed of [1, 9, 42, 1234]) {
+    const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(seed) });
+    assert.equal(g.fruits.size, 10, `seed ${seed} laid out the wrong number`);
+    assert.equal(g.fruits.has('0,0'), false, 'the ★ itself must stay clear');
+    const spots = spotsOf(g);
+    for (const s of spots) {
+      const d = dist(s, [g.startCell.x, g.startCell.y]);
+      assert.ok(d >= 3, `fruit at ${s} is too easy at distance ${d}`);
+      assert.ok(d <= 9, `fruit at ${s} is out of reach at distance ${d}`);
+    }
+    for (let i = 0; i < spots.length; i++) {
+      for (let j = i + 1; j < spots.length; j++) {
+        assert.ok(dist(spots[i], spots[j]) >= 4, `fruits bunch: ${spots[i]} / ${spots[j]}`);
+      }
     }
   }
+});
+
+test('every fruit is reachable: none sits behind an occupied cell or off on its own', () => {
+  const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(5) });
+  for (const k of g.fruits.keys()) {
+    const [x, y] = k.split(',').map(Number);
+    assert.ok(!g.board.get(x, y), 'fruit must sit on an empty cell');
+  }
+});
+
+test('each new day lays out a fresh crop around the day\'s action', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  g.fruits.clear();
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  const stale = spotsOf(g);
+
+  g.startNewDay();
+  assert.equal(g.fruits.size, 10, 'the new day needs its own crop');
+  assert.deepEqual(
+    spotsOf(g).filter((s) => stale.some((t) => t[0] === s[0] && t[1] === s[1])),
+    [],
+    'yesterday\'s leftovers should be cleared away',
+  );
+
+  // Everything is within reach of somewhere play can actually happen: the
+  // new ★, or a word already on the board.
+  const focals = [[g.startCell.x, g.startCell.y], ...[...g.board.cells.keys()].map((k) => k.split(',').map(Number))];
+  for (const s of spotsOf(g)) {
+    const nearest = Math.min(...focals.map((f) => dist(s, f)));
+    assert.ok(nearest >= 3 && nearest <= 9, `fruit at ${s} sits ${nearest} from anything worth playing`);
+  }
+  assert.match(g.log.join('\n'), /fresh fruits are within reach/);
 });

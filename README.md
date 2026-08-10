@@ -23,8 +23,10 @@ Two ways to play:
 Tap a placed tile to steal or mutate its word — a steal is spelled right
 over the old word (its letters are yours to reuse; arrows slide your word
 along the line), and mutations pick from a letter grid. The ✓ button shows
-the points a play will score before you commit. Drag to pan; pinch or
-scroll to zoom. The arrow keys drive a board cursor (the viewport follows):
+the points a play will score before you commit. When a word is played and
+it isn't already on screen, the camera glides over to it, so you always see
+what just happened — touch the board and the view is yours again. Drag to
+pan; pinch or scroll to zoom. The arrow keys drive a board cursor (the viewport follows):
 type to start a word at the cursor, press Enter on a tile to steal/mutate
 it, and `+`/`-` zoom. Drag rack tiles to rearrange them (or ⇄ shuffle). Your name
 is remembered between visits, and a fresh game starts with the cursor
@@ -41,9 +43,11 @@ npm test           # engine + API test suite (node --test, no dependencies)
 ## The rules
 
 - **A looping world.** The board is a 120×120 torus: walk off one edge and
-  you come back on the other, and words may wrap around the seam. The first
-  word must cover the ★ start cell (always on a double-word star); every
-  later word must connect to what's on the board.
+  you come back on the other, and words may wrap around the seam. The
+  opening word on an empty board must cover the ★ start cell (always on a
+  double-word star); every later word must connect to what's on the board.
+  The ★ moves each day, but the letters stay, so from day two the action
+  carries on where the words already are.
 - **Classic premiums, tiled forever.** The premium squares are the actual
   classic scrabble layout — triple-word corners, double-word diagonal X's,
   the triple/double-letter diamonds — stretched to double scale and tiled
@@ -51,6 +55,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
   premium counts only when the letter on it changed that move.
 - **Play after a friend.** You may only move after another player has moved —
   nobody plays twice in a row (waived while you're alone in the game).
+- **One name each.** Two players in the same game can't share a name —
+  case and stray spacing are ignored when comparing, so `Ada` and `  aDA `
+  collide. Up to 16 players may sit at one online game.
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
   words must be real. Racks refill to 7 tiles from a real scrabble bag —
   **one standard 100-tile set per day**, drawn without replacement. When
@@ -89,17 +96,20 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Wildcard redefinition.** A blank on the board may be redefined to a
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.
-- **Bonus fruits.** Pac-man style: a fresh world starts with a dozen fruits
-  scattered widely across it, and most moves spawn another near the action
-  (never bunched together, twelve at most). Cover one with a newly placed
-  letter to eat it: 🍋 lemon feeds you two extra letters, 🌶️ chilli hands
-  you a high-scoring letter (J/Q/X/Z, or the best the bag has left), 🍒
-  cherry lets you keep one letter from a choice of seven (choosing doesn't
-  use your turn), 🍇 grape is worth 10 bonus points, 🍌 banana deals you a
-  completely fresh rack, and 🥝 kiwi hands you a wildcard. Every one of
-  those letters is drawn from the day's bag — a fruit whose letter has run
-  out simply fizzles, and the six letters you turn down from a cherry go
-  straight back in.
+- **Bonus fruits.** Pac-man style, and always worth chasing: **every day
+  lays out ten fruits within reach of the action** — arranged in a ring
+  3 to 9 cells from the ★ and from words already on the board, so getting
+  one takes a move or two of deliberate play rather than luck. Yesterday's
+  leftovers are cleared away with yesterday's bag. Most moves spawn another
+  near where you just played (never bunched together, twelve at most).
+  Cover one with a newly placed letter to eat it: 🍋 lemon feeds you two
+  extra letters, 🌶️ chilli hands you a high-scoring letter (J/Q/X/Z, or the
+  best the bag has left), 🍒 cherry lets you keep one letter from a choice
+  of seven (choosing doesn't use your turn), 🍇 grape is worth 10 bonus
+  points, 🍌 banana deals you a completely fresh rack, and 🥝 kiwi hands you
+  a wildcard. Every one of those letters is drawn from the day's bag — a
+  fruit whose letter has run out simply fizzles, and the six letters you
+  turn down from a cherry go straight back in.
 - **Running the table.** Whoever starts the game is its **admin 👑** (never
   a CPU seat — the first human to join takes it instead). The admin can
   **remove** any other player, whose letters go back into the day's bag and
@@ -107,8 +117,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
   another human. Handing over is one-way: only the new admin can give them
   back.
 - **Daily stars.** Scores reset every day (UTC), everyone is dealt a fresh
-  rack, and the ★ start cell wanders to a different double-word star. The
-  player(s) with the top score of the day get a permanent ★ by their name.
+  rack from a new bag, the ★ start cell wanders to a different double-word
+  star, and a fresh crop of fruit is laid out within reach. The player(s)
+  with the top score of the day get a permanent ★ by their name.
 
 ## Dictionary
 

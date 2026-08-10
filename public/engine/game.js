@@ -41,10 +41,13 @@ const FRUIT_TABLE = [
 ];
 const FRUIT_CHANCE = 0.6;
 const MAX_FRUITS = 12;
-const INITIAL_FRUITS = 12;
+const DAILY_FRUITS = 10; // laid out each day, leaving room for fresh spawns
 const FRUIT_RADIUS = 4;
 const FRUIT_SPACING = 6; // min toroidal distance between fruits mid-game
-const INITIAL_SPACING = 14; // min spread for the opening scatter
+const FRUIT_NEAR = 3; // never right under your nose...
+const FRUIT_FAR = 9; // ...and never further than a couple of moves away
+const DAILY_SPACING = 4; // min gap within the day's own scatter
+const FOCAL_SAMPLES = 6; // board cells the day's fruit is arranged around
 const CHERRY_CHOICES = 7;
 const FIERY_LETTERS = ['j', 'q', 'x', 'z'];
 const GRAPE_POINTS = 10;
@@ -246,7 +249,12 @@ export class Game {
     }
     const [nx, ny] = stars[Math.floor(this.bag.rng() * stars.length)];
     this.startCell = { x: nx, y: ny };
+    // Yesterday's leftovers are scattered wherever yesterday's play went;
+    // lay out a fresh crop within reach of today's.
+    this.fruits.clear();
+    this.#seedFruits();
     this.log.push(`the start star ★ moved and everyone drew a fresh rack`);
+    this.log.push(`${this.fruits.size} fresh fruits are within reach 🍒`);
     this.day += 1;
     this.lastPlayerId = null;
     this.passed.clear();
@@ -353,13 +361,43 @@ export class Game {
     return best;
   }
 
-  /** Scatter the opening fruits across the world, well spread out. */
+  /**
+   * The places today's play will revolve around: the ★, plus a scattering
+   * of words already on the board (later days start on a busy board, and
+   * the action follows the letters, not the star).
+   */
+  #focalPoints() {
+    const points = [[this.startCell.x, this.startCell.y]];
+    const cells = [...this.board.cells.keys()];
+    for (let i = 0; i < FOCAL_SAMPLES && cells.length; i++) {
+      const k = cells[Math.floor(this.bag.rng() * cells.length)];
+      points.push(k.split(',').map(Number));
+    }
+    return points;
+  }
+
+  /**
+   * Lay out the day's fruit within reach of the action: a ring around each
+   * focal point, near enough that a player who goes after one can get there
+   * in a move or two, far enough that they have to mean it. Called for a
+   * fresh world and again at the start of every day.
+   */
   #seedFruits() {
-    for (let tries = 0; this.fruits.size < INITIAL_FRUITS && tries < 400; tries++) {
-      const x = Math.floor(this.bag.rng() * WORLD);
-      const y = Math.floor(this.bag.rng() * WORLD);
+    const focals = this.#focalPoints();
+    const rng = () => this.bag.rng();
+    for (let tries = 0; this.fruits.size < DAILY_FRUITS && tries < 800; tries++) {
+      const [fx, fy] = focals[Math.floor(rng() * focals.length)];
+      // Pick how far out first, then a spot on that ring, so the crop is
+      // spread evenly through the band instead of piling up at its edge.
+      const r = FRUIT_NEAR + Math.floor(rng() * (FRUIT_FAR - FRUIT_NEAR + 1));
+      const along = Math.floor(rng() * (2 * r + 1)) - r;
+      const edge = rng() < 0.5 ? r : -r;
+      const [dx, dy] = rng() < 0.5 ? [along, edge] : [edge, along];
+      const x = wrapCoord(fx + dx);
+      const y = wrapCoord(fy + dy);
       if (x === this.startCell.x && y === this.startCell.y) continue;
-      if (this.#fruitDistance(x, y) < INITIAL_SPACING) continue;
+      if (this.board.get(x, y)) continue; // fruit only sits on empty cells
+      if (this.#fruitDistance(x, y) < DAILY_SPACING) continue;
       this.fruits.set(Board.key(x, y), this.#rollFruitType());
     }
   }
