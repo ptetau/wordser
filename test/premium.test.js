@@ -40,7 +40,7 @@ test('the gaps between motifs are empty', () => {
 });
 
 test('negative coordinates behave like positive ones', () => {
-  assert.equal(premiumAt(-15, 0), 'DW'); // one whole board back
+  assert.equal(premiumAt(-14, 0), 'DW'); // one whole board back
   assert.equal(premiumAt(-6, -6), 'DW');
   assert.equal(premiumAt(-2, -2), 'TL');
 });
@@ -57,13 +57,25 @@ test('the tiling closes seamlessly around the world', () => {
   }
 });
 
-test('boards sit edge to edge, sharing their triple-word rims', () => {
-  // Two boards meet between x=7 and x=8: both carry the classic TW edge,
-  // exactly as two boards laid side by side on a table would.
-  assert.equal(premiumAt(7, 0), 'TW');
-  assert.equal(premiumAt(8, 0), 'TW');
-  assert.equal(premiumAt(15, 15), 'DW'); // the next board's centre star
-  assert.equal(premiumAt(15, 0), 'DW'); // ...and its centre row
+test('boards share one rim rather than doubling it at the seam', () => {
+  // Where two boards meet there is a single triple-word line, not two
+  // abutting ones: the classic board's last row repeats its first, so the
+  // tile drops it.
+  assert.equal(premiumAt(7, 0), 'TW'); // the shared rim
+  assert.equal(premiumAt(8, 0), null); // ...and plain felt beside it
+  assert.equal(premiumAt(6, 0), null);
+  assert.equal(premiumAt(0, 7), 'TW');
+  assert.equal(premiumAt(0, 8), null);
+  assert.equal(premiumAt(14, 14), 'DW'); // the next board's centre star
+  assert.equal(premiumAt(14, 0), 'DW'); // ...and its centre row
+  // No two triple-words ever sit side by side, anywhere in the tile.
+  for (let x = 0; x < 28; x++) {
+    for (let y = 0; y < 28; y++) {
+      if (premiumAt(x, y) !== 'TW') continue;
+      assert.notEqual(premiumAt(x + 1, y), 'TW', `doubled TW across at ${x},${y}`);
+      assert.notEqual(premiumAt(x, y + 1), 'TW', `doubled TW down at ${x},${y}`);
+    }
+  }
 });
 
 test('every lattice star the day can move to is a real board centre', () => {

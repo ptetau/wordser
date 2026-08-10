@@ -1298,7 +1298,7 @@ $('join-online').addEventListener('click', async () => {
   }
 });
 
-// The world is 480 cells wide; you can pan until nothing is familiar.
+// The world is 448 cells wide; you can pan until nothing is familiar.
 $('recentre').addEventListener('click', () => {
   cancelFlight();
   flyToCells(game.lastMove?.keys ?? [Board.key(game.startCell.x, game.startCell.y)], { force: true });

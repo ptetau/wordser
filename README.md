@@ -1,6 +1,6 @@
 # wordser
 
-N-player scrabble on a looping 480×480 world. Letters can be stolen, words
+N-player scrabble on a looping 448×448 world. Letters can be stolen, words
 can be rewritten under your opponents' feet, bonus fruits dot the plain,
 and every day crowns a winner.
 
@@ -33,7 +33,7 @@ word won't do. Whose turn it is is written at the top of Actions. The view stays
 put it; switch on *Glide the view to each new word* under the table's rules
 if you would rather it follow the play. Drag to
 pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
-**⌖** returns you to the last word played — handy on a 480-cell world.
+**⌖** returns you to the last word played — handy on a 448-cell world.
 Once the first word is down, the setup controls (adding players, the share
 link, ending the day) fold away under *Players & setup* so the panel is
 mostly the game; open the fold any time and it stays open. The arrow keys drive a board cursor (the viewport follows):
@@ -56,7 +56,7 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 ## The rules
 
-- **A looping world.** The board is a 480×480 torus: walk off one edge and
+- **A looping world.** The board is a 448×448 torus: walk off one edge and
   you come back on the other, and words may wrap around the seam. The
   opening word on an empty board must cover the ★ start cell (always on a
   double-word star); every later word must connect to what's on the board.
@@ -65,10 +65,12 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Classic premiums, tiled forever.** The premium squares are the real
   scrabble board — triple-word corners, the double-word diagonal X, the
   triple/double-letter diamonds — tiled edge to edge at its own scale. The
-  15-square board divides the 480-cell world exactly 32 times, so the
-  pattern meets itself perfectly at the seam, and neighbouring boards share
-  their triple-word rims the way two boards laid side by side would. A
-  premium counts only when the letter on it changed that move.
+  board's last row and column repeat its first, so the tile is 14 squares
+  rather than 15: neighbouring boards share a single triple-word rim
+  instead of each bringing their own and doubling it at the join. 14
+  divides the 448-cell world exactly 32 times, so the pattern meets itself
+  at the seam too. A premium counts only when the letter on it changed that
+  move.
 - **Turns, or a free-for-all.** New games rotate in seat order: the game
   says whose go it is and refuses anybody else. The admin can switch the
   table to **free-for-all**, where anyone may play so long as they don't go

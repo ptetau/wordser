@@ -1,12 +1,13 @@
 // Premium squares: the real scrabble board, tiled across the world.
 //
-// The real scrabble board, tiled edge to edge at its own scale: 15 squares
-// across, which divides the 480-cell world exactly 32 times, so the pattern
-// meets itself perfectly at the seam. Adjacent boards share their triple-word
-// edges, the way two boards laid side by side on a table would.
+// The board is laid edge to edge at its own scale. Its last row and column
+// repeat its first, so the tile is 14 squares rather than 15 — neighbouring
+// boards share one triple-word rim instead of each bringing their own and
+// doubling it at the join. 14 divides the 448-cell world exactly 32 times,
+// so the pattern meets itself at the seam as well.
 const SCALE = 1;
-const BOARD = 15; // the classic board, in squares
-const TILE = BOARD;
+const BOARD = 15; // the classic board, in squares...
+const TILE = BOARD - 1; // ...minus the edge it shares with the next board
 export const PERIOD = TILE * SCALE;
 
 const mod = (n, m) => ((n % m) + m) % m;

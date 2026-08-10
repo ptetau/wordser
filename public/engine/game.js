@@ -1,4 +1,4 @@
-// The wordser game: n-player scrabble on a looping 512x512 world.
+// The wordser game: n-player scrabble on a looping 448x448 world.
 //
 // House rules implemented here:
 //   - A torus board with a recurring criss-cross premium pattern (premium.js).
