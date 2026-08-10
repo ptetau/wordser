@@ -279,7 +279,12 @@ button.primary:hover { background: #387244; }
 
 details { font-size: 12.5px; color: #aeb6c2; }
 details summary { cursor: pointer; color: #e8e6df; }
-details li { margin: 6px 0; }
+details li { margin: 5px 0; }
+#help-section h4 {
+  margin: 12px 0 4px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--muted); font-weight: 600;
+}
+#help-section ul { margin: 0; padding-left: 18px; }
 .chip { padding: 1px 5px; border-radius: 4px; font-size: 11px; color: #fff; }
 .chip.tw { background: #c0392b; } .chip.dw { background: #e07a6b; }
 .chip.tl { background: #2471a3; } .chip.dl { background: #7fb3d5; }
