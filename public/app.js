@@ -1,5 +1,5 @@
 import { Game, GameError, FRUIT_EMOJI, START_CELL } from './engine/game.js';
-const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd']);
+const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin']);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
@@ -313,6 +313,8 @@ function renderPlayers() {
     box.innerHTML = '<div class="muted">No players yet.</div>';
     return;
   }
+  const me = online() ? session.playerId : currentPlayer;
+  const iAmAdmin = game.isAdmin(me);
   for (const p of game.players) {
     const div = document.createElement('div');
     div.className = 'player';
@@ -320,8 +322,9 @@ function renderPlayers() {
     const mustWait = game.players.length > 1 && game.lastPlayerId === p.id;
     if (mustWait) div.classList.add('waiting');
     const you = online() && p.id === session.playerId ? ' <small>(you)</small>' : '';
+    const crown = game.isAdmin(p.id) ? ' <span title="game admin">👑</span>' : '';
     div.innerHTML = `
-      <span class="name">${esc(p.name)}${you}${mustWait ? ' <small>(waiting)</small>' : ''}</span>
+      <span class="name">${esc(p.name)}${crown}${you}${mustWait ? ' <small>(waiting)</small>' : ''}</span>
       <span class="stars">${'★'.repeat(p.stars)}</span>
       <span class="score">${p.score}</span>`;
     if (!online()) {
@@ -331,8 +334,40 @@ function renderPlayers() {
         refresh();
       };
     }
+    if (iAmAdmin && p.id !== me) div.appendChild(adminTools(p));
     box.appendChild(div);
   }
+}
+
+/** The admin's per-player controls: hand over the crown, or remove a seat. */
+function adminTools(p) {
+  const tools = document.createElement('span');
+  tools.className = 'admin-tools';
+  if (!p.isCpu) {
+    const crown = document.createElement('button');
+    crown.className = 'mini';
+    crown.textContent = '👑';
+    crown.title = `make ${p.name} the admin`;
+    crown.onclick = (e) => {
+      e.stopPropagation();
+      if (!confirm(`Hand admin to ${p.name}? You won't be able to take it back yourself.`)) return;
+      doMove({ type: 'admin', toId: p.id }, () => `${p.name} is the admin now 👑`);
+    };
+    tools.appendChild(crown);
+  }
+  const kick = document.createElement('button');
+  kick.className = 'mini';
+  kick.textContent = '✕';
+  kick.title = `remove ${p.name} from the game`;
+  kick.onclick = (e) => {
+    e.stopPropagation();
+    if (!confirm(`Remove ${p.name} from the game? Their letters go back in the bag.`)) return;
+    doMove({ type: 'kick', targetId: p.id }, (r) =>
+      r.dayEnded ? `${r.removed} was removed — a new day begins! ★` : `${r.removed} was removed`,
+    );
+  };
+  tools.appendChild(kick);
+  return tools;
 }
 
 function renderRack() {
@@ -705,6 +740,11 @@ function requirePlayer() {
 
 // -------------------------------------------------------- moves (both modes)
 function adoptView(d) {
+  // A removal shifts every seat below it: the server tells me my new id.
+  if (d.you != null && d.you !== session.playerId) {
+    session.playerId = d.you;
+    session.save();
+  }
   const changed = d.seq !== seq;
   seq = d.seq;
   game = Game.fromJSON(d.game, { dictionary });
@@ -731,13 +771,17 @@ async function doMove(move, describe) {
       adoptView(d);
       status(describe(d.result), 'good');
     } catch (err) {
-      showError(err);
-      if (err instanceof NetError && (err.status === 409 || err.status === 404)) sync(true);
+      if (err instanceof NetError && err.status === 403) noteRemoved();
+      else {
+        showError(err);
+        if (err instanceof NetError && (err.status === 409 || err.status === 404)) sync(true);
+      }
     }
     return null;
   }
   try {
     const r = game.apply({ playerId: currentPlayer, ...move });
+    if (r?.map) currentPlayer = r.map[currentPlayer]; // a removal renumbered the seats
     cancelModes();
     selected = null;
     status(describe(r), 'good');
@@ -895,15 +939,23 @@ function shareLink() {
 }
 
 let polling = false;
+let removed = false; // this seat was taken out of the game; stop polling
+
+/** A token only stops working when the admin removes that seat. */
+function noteRemoved() {
+  removed = true;
+  status('you are no longer in this game — the admin removed your seat', 'error');
+  refresh();
+}
 async function sync(force = false) {
-  if (!online() || polling) return;
+  if (!online() || polling || removed) return;
   polling = true;
   try {
     const d = await session.state(force ? undefined : seq);
     if (!d.unchanged) adoptView(d);
   } catch (err) {
     if (err instanceof NetError && err.status === 403) {
-      status('this game does not recognise you on this device', 'error');
+      noteRemoved();
     } else if (err instanceof NetError && err.status === 404) {
       status('this game has expired', 'error');
     }

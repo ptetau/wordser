@@ -84,6 +84,7 @@ export class Game {
     this.startCell = { ...START_CELL };
     this.#seedFruits();
     this.players = [];
+    this.adminId = null; // the seat that may remove players and pass this on
     this.lastPlayerId = null;
     this.passed = new Set(); // players who passed since the last real move
     this.dayEndVote = null; // { proposer, agreed: [ids], expiresAt } while voting
@@ -114,6 +115,7 @@ export class Game {
     const player = { id: this.players.length, name: clean, rack: [], score: 0, stars: 0 };
     this.players.push(player);
     this.#refill(player);
+    this.adminId ??= player.id; // whoever gets here first runs the game
     return player;
   }
 
@@ -123,7 +125,75 @@ export class Game {
     while (this.nameTaken(`Robo ${n} 🤖`)) n++;
     const cpu = this.addPlayer(`Robo ${n} 🤖`);
     cpu.isCpu = true;
+    // A CPU can't run the game; the next human to arrive takes it on.
+    if (this.adminId === cpu.id) this.adminId = null;
     return cpu;
+  }
+
+  /** True if this seat holds the game's admin rights. */
+  isAdmin(playerId) {
+    return this.adminId != null && this.adminId === playerId;
+  }
+
+  #assertAdmin(playerId) {
+    if (!this.isAdmin(playerId)) fail('only the game admin can do that');
+  }
+
+  /**
+   * Hand admin rights to somebody else. CPU seats can't hold them — nobody
+   * would ever be able to use them again.
+   */
+  transferAdmin({ playerId, toId }) {
+    this.#maybeRollover();
+    this.#assertAdmin(playerId);
+    const target = this.player(toId);
+    if (target.id === playerId) fail('you are already the admin');
+    if (target.isCpu) fail('a CPU player cannot be the admin');
+    this.adminId = target.id;
+    this.log.push(`${this.player(playerId).name} handed admin to ${target.name} 👑`);
+    return { admin: target.id };
+  }
+
+  /**
+   * Remove a player from the game. Their tiles rejoin today's bag, and every
+   * seat after theirs shifts up so ids stay array indices — the returned
+   * `map` takes an old id to its new one (null for the player who left) for
+   * callers holding ids of their own.
+   */
+  removePlayer({ playerId, targetId }) {
+    this.#maybeRollover();
+    this.#assertAdmin(playerId);
+    const target = this.player(targetId);
+    if (target.id === playerId) {
+      fail('the admin cannot remove themselves — hand admin over first');
+    }
+    const gone = target.id;
+    const remap = (id) => (id == null || id === gone ? null : id > gone ? id - 1 : id);
+    const map = this.players.map((_, i) => remap(i));
+
+    this.bag.pool.push(...target.rack); // their letters go back in today's bag
+    this.players.splice(gone, 1);
+    this.players.forEach((p, i) => (p.id = i));
+    this.adminId = remap(this.adminId);
+    this.lastPlayerId = remap(this.lastPlayerId);
+    this.passed = new Set([...this.passed].map(remap).filter((id) => id !== null));
+    if (this.lastMove && this.lastMove.playerId === gone) this.lastMove.playerId = null;
+    this.log.push(`${target.name} was removed from the game`);
+
+    if (this.dayEndVote) {
+      if (this.dayEndVote.proposer === gone) {
+        this.dayEndVote = null;
+        this.log.push('their proposal to end the day went with them — play on');
+      } else {
+        this.dayEndVote.proposer = remap(this.dayEndVote.proposer);
+        this.dayEndVote.agreed = this.dayEndVote.agreed.map(remap).filter((id) => id !== null);
+        // Removing a holdout can be the last vote a proposal was waiting on.
+        if (this.dayEndVote.agreed.length >= this.players.length) {
+          return { removed: target.name, map, ...this.#endDayByAgreement() };
+        }
+      }
+    }
+    return { removed: target.name, map, dayEnded: false };
   }
 
   player(id) {
@@ -872,6 +942,10 @@ export class Game {
         return this.voteDayEnd(move);
       case 'choose':
         return this.choosePendingLetter(move);
+      case 'kick':
+        return this.removePlayer(move);
+      case 'admin':
+        return this.transferAdmin(move);
       default:
         fail(`unknown move type: ${move?.type}`);
     }
@@ -883,6 +957,7 @@ export class Game {
       day: this.day,
       dateKey: this.dateKey,
       lastPlayerId: this.lastPlayerId,
+      adminId: this.adminId,
       players: this.players.map((p) => ({ ...p, rack: [...p.rack] })),
       cells: [...this.board.cells.entries()].map(([k, tile]) => {
         const [x, y] = k.split(',').map(Number);
@@ -908,6 +983,9 @@ export class Game {
     game.dateKey = data.dateKey;
     game.lastPlayerId = data.lastPlayerId;
     game.players = data.players.map((p) => ({ ...p, rack: [...p.rack] }));
+    // Games saved before admin rights existed hand them to the first human.
+    const firstHuman = game.players.findIndex((p) => !p.isCpu);
+    game.adminId = data.adminId ?? (firstHuman === -1 ? null : firstHuman);
     for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
     game.fruits.clear(); // replace the constructor's fresh scatter with the snapshot's
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);

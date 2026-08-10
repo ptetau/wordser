@@ -14,6 +14,8 @@ import { RespClient } from './resp.js';
 
 const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
+/** Moves that don't consume a turn, so no CPU seat should answer them. */
+const NON_TURN_MOVES = ['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin'];
 
 let dictionaryPromise;
 const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());
@@ -133,12 +135,27 @@ function view(record, playerId) {
   return { seq: record.seq, id: record.id, you: playerId, game };
 }
 
-function authPlayer(record, playerId, token) {
-  const p = record.game.players[playerId];
-  if (!p || !token || p.token !== token) {
-    throw Object.assign(new Error('bad player credentials'), { status: 403 });
-  }
+/**
+ * The token is the credential; the id a client sends is only a hint, since
+ * removing a player shifts every seat below them along.
+ */
+function authPlayer(record, token) {
+  const p = token ? record.game.players.find((q) => q.token === token) : null;
+  if (!p) throw Object.assign(new Error('bad player credentials'), { status: 403 });
   return p;
+}
+
+/**
+ * Copy player tokens from the stored record onto a fresh snapshot. `map`
+ * (returned by a removal) takes an old seat index to its new one; without
+ * one the seats line up exactly.
+ */
+function carryTokens(data, record, map) {
+  record.game.players.forEach((p, oldId) => {
+    const newId = map ? map[oldId] : oldId;
+    if (newId != null && data.players[newId]) data.players[newId].token = p.token;
+  });
+  return data;
 }
 
 async function loadGame(record) {
@@ -198,10 +215,7 @@ export async function handleAction(store, body) {
       const game = await loadGame(record);
       const player = game.addPlayer(name);
       const token = crypto.randomUUID();
-      const data = game.toJSON();
-      for (let i = 0; i < record.game.players.length; i++) {
-        data.players[i].token = record.game.players[i].token;
-      }
+      const data = carryTokens(game.toJSON(), record);
       data.players[player.id].token = token;
       const next = { id: record.id, seq: record.seq + 1, game: data };
       if (!(await store.put(KEY(record.id), next, record.seq))) {
@@ -210,8 +224,7 @@ export async function handleAction(store, body) {
       return { status: 200, data: { ...view(next, player.id), token } };
     }
 
-    const playerId = Number(body?.playerId);
-    authPlayer(record, playerId, body?.token);
+    const playerId = authPlayer(record, body?.token).id;
 
     if (action === 'addcpu') {
       if (record.game.players.length >= MAX_PLAYERS) {
@@ -221,8 +234,7 @@ export async function handleAction(store, body) {
       const cpu = game.addCpu();
       game.log.push(`${cpu.name} joined the game`);
       runCpuTurns(game, await cpuWords());
-      const data = game.toJSON();
-      record.game.players.forEach((p, i) => (data.players[i].token = p.token));
+      const data = carryTokens(game.toJSON(), record);
       const next = { id: record.id, seq: record.seq + 1, game: data };
       if (!(await store.put(KEY(record.id), next, record.seq))) {
         return { status: 409, data: { error: 'the game changed underneath you — try again' } };
@@ -233,8 +245,7 @@ export async function handleAction(store, body) {
     if (action === 'state') {
       const game = await loadGame(record);
       if (game.tickClock()) {
-        const data = game.toJSON();
-        record.game.players.forEach((p, i) => (data.players[i].token = p.token));
+        const data = carryTokens(game.toJSON(), record);
         const next = { id: record.id, seq: record.seq + 1, game: data };
         if (await store.put(KEY(record.id), next, record.seq)) {
           return { status: 200, data: view(next, playerId) };
@@ -251,17 +262,19 @@ export async function handleAction(store, body) {
     if (action === 'move') {
       const game = await loadGame(record);
       const result = game.apply({ ...body.move, playerId });
-      const nonTurn = ['choose', 'proposeEnd', 'voteEnd'].includes(body.move?.type);
+      const nonTurn = NON_TURN_MOVES.includes(body.move?.type);
       if (!nonTurn && game.players.some((p) => p.isCpu)) {
         runCpuTurns(game, await cpuWords());
       }
-      const data = game.toJSON();
-      record.game.players.forEach((p, i) => (data.players[i].token = p.token));
+      // A removal renumbers the seats below it — tokens (and my own id)
+      // follow the map the engine handed back.
+      const data = carryTokens(game.toJSON(), record, result?.map);
+      const me = result?.map ? result.map[playerId] : playerId;
       const next = { id: record.id, seq: record.seq + 1, game: data };
       if (!(await store.put(KEY(record.id), next, record.seq))) {
         return { status: 409, data: { error: 'someone moved at the same time — try again' } };
       }
-      return { status: 200, data: { ...view(next, playerId), result } };
+      return { status: 200, data: { ...view(next, me), result } };
     }
 
     return { status: 400, data: { error: `unknown action: ${action}` } };

@@ -89,6 +89,12 @@ npm test           # engine + API test suite (node --test, no dependencies)
   from a choice of seven (choosing doesn't use your turn), 🍇 grape is
   worth 10 bonus points, 🍌 banana deals you a completely fresh rack, and
   🥝 kiwi hands you a wildcard.
+- **Running the table.** Whoever starts the game is its **admin 👑** (never
+  a CPU seat — the first human to join takes it instead). The admin can
+  **remove** any other player, whose letters go back into the day's bag and
+  whose seat closes up behind them, and can **hand the admin rights** to
+  another human. Handing over is one-way: only the new admin can give them
+  back.
 - **Daily stars.** Scores reset every day (UTC), everyone is dealt a fresh
   rack, and the ★ start cell wanders to a different double-word star. The
   player(s) with the top score of the day get a permanent ★ by their name.
