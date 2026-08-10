@@ -46,13 +46,20 @@ test('the day rolls over automatically with the clock', () => {
   assert.equal(g.players[0].score, 10);
 
   nowMs += 24 * 60 * 60 * 1000;
-  // New day: the rollover re-deals Ana's rack, so trigger it first, then
-  // give her the s. She may open the day even though she played last, and
-  // yesterday's star is hers.
   assert.equal(g.rolloverIfNeeded(), true);
-  g.players[0].rack = ['s', 'e', 'e', 'e', 'e', 'e', 'e'];
-  g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
   assert.equal(g.day, 2);
-  assert.equal(g.players[0].stars, 1);
-  assert.equal(g.players[0].score, 6); // only today's "cats" points remain
+  assert.equal(g.players[0].stars, 1); // yesterday's star is hers
+  assert.equal(g.players[0].score, 0);
+
+  // Closing one day and opening the next is still two turns in a row, so
+  // Ana has to wait for Ben even across the boundary.
+  g.players[0].rack = ['s', 'e', 'e', 'e', 'e', 'e', 'e'];
+  assert.throws(
+    () => g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] }),
+    /after a friend/,
+  );
+  g.players[1].rack = ['s', 'e', 'e', 'e', 'e', 'e', 'e'];
+  g.place({ playerId: 1, tiles: [{ x: 3, y: 0, letter: 's' }] });
+  assert.equal(g.players[1].score, 6); // only today's "cats" points
+  assert.equal(g.players[0].score, 0);
 });

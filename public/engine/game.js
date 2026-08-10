@@ -213,10 +213,17 @@ export class Game {
     }
   }
 
+  /**
+   * Nobody plays two turns in a row — not even the only player at the
+   * table, who has to find someone (or something) to play against.
+   */
   #assertCanPlay(player) {
-    if (this.players.length > 1 && this.lastPlayerId === player.id) {
-      fail('you can only play after a friend has played');
-    }
+    if (this.lastPlayerId !== player.id) return;
+    fail(
+      this.players.length > 1
+        ? 'you can only play after a friend has played'
+        : 'you have played — add a friend or a CPU player 🤖 to keep going',
+    );
   }
 
   /** Award stars for the day that just ended, reset scores, start a new day. */
@@ -256,7 +263,8 @@ export class Game {
     this.log.push(`the start star ★ moved and everyone drew a fresh rack`);
     this.log.push(`${this.fruits.size} fresh fruits are within reach 🍒`);
     this.day += 1;
-    this.lastPlayerId = null;
+    // lastPlayerId carries over: closing one day and opening the next is
+    // still two turns in a row.
     this.passed.clear();
     this.dayEndVote = null;
     this.dateKey = this.#dateKey();

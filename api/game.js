@@ -30,7 +30,7 @@ const cpuWords = () => (cpuWordsPromise ??= dictionary().then(buildWordList));
 function runCpuTurns(game, wordList) {
   for (const p of game.players) {
     if (!p.isCpu) continue;
-    if (game.players.length > 1 && game.lastPlayerId === p.id) continue;
+    if (game.lastPlayerId === p.id) continue;
     takeCpuTurn(game, p.id, wordList);
   }
 }

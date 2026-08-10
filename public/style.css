@@ -60,6 +60,30 @@ button { cursor: pointer; }
 button:hover { background: #2e3542; }
 button:disabled { opacity: 0.4; cursor: default; }
 
+/* Glints: a slow sweep of light across a control the player has never used,
+   so a newcomer can see what is worth pressing. Each one stops for good the
+   first time that action is taken (see markUsed in app.js). */
+@keyframes glint-sweep {
+  0% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  6% { opacity: 1; }
+  38% { transform: translateX(230%) skewX(-18deg); opacity: 0; }
+  100% { transform: translateX(230%) skewX(-18deg); opacity: 0; }
+}
+.glint { position: relative; overflow: hidden; }
+.glint::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 34%, rgba(255, 245, 214, 0.34) 50%, transparent 66%);
+  animation: glint-sweep 5s ease-in-out infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No sweep, but still mark the control as one worth noticing. */
+  .glint::after { animation: none; background: none; }
+  .glint { box-shadow: inset 0 0 0 1px var(--accent); }
+}
+
 #add-player-form { display: flex; gap: 6px; }
 #add-player-form input { flex: 1; }
 #online-controls, #join-controls { margin-top: 6px; }

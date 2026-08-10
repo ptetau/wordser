@@ -4,6 +4,7 @@ import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
+import { defaultDirection } from './placement.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
 import parlour from './themes/parlour.js';
@@ -37,6 +38,7 @@ let kbCursor = null; // keyboard cursor cell, moved with the arrow keys
 let cpuWordList = null; // lazy-built candidate words for CPU players
 let pickingBlank = null; // 'placement' | 'mutate': choosing a letter for a blank
 let exchanging = null; // { picks: number[] }: rack indices marked for exchange
+let lastDir = 'h'; // the direction the player last chose, for stable defaults
 
 const online = () => session !== null;
 
@@ -51,6 +53,53 @@ function rememberName(name) {
   try {
     localStorage.setItem('wordser:name', name);
   } catch {}
+}
+
+// ------------------------------------------------------------------ glints
+// A newcomer can't tell which controls do anything. Each one that matters
+// carries a slow sweep of light until they use it once, then that glint is
+// gone for good — the hint retires itself instead of nagging.
+const GLINT_KEY = 'wordser:used';
+const used = new Set(
+  (() => {
+    try {
+      return JSON.parse(localStorage.getItem(GLINT_KEY) ?? '[]');
+    } catch {
+      return [];
+    }
+  })(),
+);
+
+/** Record that the player has now done this, retiring its glint. */
+function markUsed(...actions) {
+  let fresh = false;
+  for (const a of actions) if (!used.has(a)) (used.add(a), (fresh = true));
+  if (!fresh) return;
+  try {
+    localStorage.setItem(GLINT_KEY, JSON.stringify([...used]));
+  } catch {
+    // Private browsing: the glints simply come back next visit.
+  }
+}
+
+// Two at a time, most instructive first — more than that is wallpaper.
+const MAX_GLINTS = 2;
+const GLINT_ORDER = ['play', 'cpu', 'steal', 'mutate', 'exchange', 'propose', 'pass', 'flip', 'shuffle'];
+let glintQueue = [];
+
+/** Glint `el` while `action` is still unfamiliar. */
+function glint(el, action) {
+  if (el && !used.has(action)) glintQueue.push({ el, action });
+  return el;
+}
+
+/** Light the most useful unfamiliar controls of this render, and no more. */
+function applyGlints() {
+  glintQueue
+    .sort((a, b) => GLINT_ORDER.indexOf(a.action) - GLINT_ORDER.indexOf(b.action))
+    .slice(0, MAX_GLINTS)
+    .forEach(({ el }) => el.classList.add('glint'));
+  glintQueue = [];
 }
 
 // ---------------------------------------------------------------- rendering
@@ -319,7 +368,7 @@ function renderPlayers() {
     const div = document.createElement('div');
     div.className = 'player';
     if (p.id === currentPlayer) div.classList.add('current');
-    const mustWait = game.players.length > 1 && game.lastPlayerId === p.id;
+    const mustWait = game.lastPlayerId === p.id;
     if (mustWait) div.classList.add('waiting');
     const you = online() && p.id === session.playerId ? ' <small>(you)</small>' : '';
     const crown = game.isAdmin(p.id) ? ' <span title="game admin">👑</span>' : '';
@@ -399,6 +448,7 @@ function renderRack() {
     box.appendChild(t);
   });
   $('shuffle').hidden = !p;
+  if (p) glint($('shuffle'), 'shuffle');
 }
 
 function rackTap(letter, index) {
@@ -568,7 +618,11 @@ function renderActions() {
         <button id="pc-cancel" title="cancel (Esc)">✕</button>
         <button id="pc-play" class="primary" title="play word (Enter)">✓${preview?.ok ? ` ${preview.points}` : ''}</button>
       </div>`;
-    if (!placement.stealing) $('pc-dir').onclick = flipDirection;
+    if (!placement.stealing) {
+      glint($('pc-dir'), 'flip');
+      $('pc-dir').onclick = flipDirection;
+    }
+    glint($('pc-play'), 'play');
     $('pc-undo').onclick = () => {
       placement.entries.pop();
       refresh();
@@ -588,7 +642,9 @@ function renderActions() {
       ex.id = 'exchange-btn';
       ex.style.cssText = 'display:block;width:100%;margin-top:6px';
       ex.textContent = '⇄ Exchange letters instead of playing';
+      glint(ex, 'exchange');
       ex.onclick = () => {
+        markUsed('exchange');
         cancelModes();
         selected = null;
         exchanging = { picks: [] };
@@ -601,7 +657,9 @@ function renderActions() {
         propose.id = 'propose-btn';
         propose.style.cssText = 'display:block;width:100%;margin-top:6px';
         propose.textContent = '🌙 Propose ending the day (2:00 to respond)';
+        glint(propose, 'propose');
         propose.onclick = () =>
+          markUsed('propose') ||
           doMove({ type: 'proposeEnd' }, (r) =>
             r.dayEnded ? 'the day ends — a new one begins! ★' : 'proposal sent — 2 minutes for others to respond',
           );
@@ -613,7 +671,9 @@ function renderActions() {
       pass.textContent = bagEmpty
         ? '⏭ Pass — the bag is empty; if everyone passes, the day ends'
         : '⏭ Pass turn';
+      glint(pass, 'pass');
       pass.onclick = () =>
+        markUsed('pass') ||
         doMove({ type: 'pass' }, (r) =>
           r.dayEnded ? 'everyone passed — a new day begins! ★' : 'passed',
         );
@@ -623,11 +683,13 @@ function renderActions() {
   }
   box.innerHTML = '<div class="word-btns"></div>';
   const btns = box.querySelector('.word-btns');
-  const mkBtn = (label, fn) => {
+  const mkBtn = (label, fn, hint) => {
     const b = document.createElement('button');
     b.textContent = label;
     b.onclick = fn;
     btns.appendChild(b);
+    if (hint) glint(b, hint);
+    return b;
   };
   for (const dir of Object.keys(DIRS)) {
     mkBtn(`Spell a word from here ${DIR_GLYPH[dir]}`, () => {
@@ -640,13 +702,14 @@ function renderActions() {
   for (const dir of Object.keys(DIRS)) {
     const w = game.board.wordThrough(selected.x, selected.y, dir);
     if (w && w.cells.length >= 2) {
-      mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir));
+      mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir), 'steal');
     }
   }
   mkBtn('Mutate this letter', () => {
+    markUsed('mutate');
     mutating = { x: selected.x, y: selected.y };
     refresh();
-  });
+  }, 'mutate');
 }
 
 function renderLog() {
@@ -660,6 +723,8 @@ function renderOnline() {
   $('online-controls').hidden = online() || pendingJoinId !== null;
   $('online-name').hidden = online();
   $('cpu-section').hidden = pendingJoinId !== null;
+  // Alone at the table you can only play once, so point at the way out.
+  if (!$('cpu-section').hidden && game.players.length) glint($('add-cpu'), 'cpu');
   $('share').hidden = !online();
   document.body.classList.toggle(
     'no-game',
@@ -713,6 +778,7 @@ function refresh() {
   renderActions();
   renderLog();
   renderOnline();
+  applyGlints();
   canvas.classList.toggle('placing', !!placement);
   render();
 }
@@ -760,7 +826,7 @@ function adoptView(d) {
     }
   }
   document.title =
-    online() && game.players.length > 1 && game.lastPlayerId !== session.playerId
+    online() && game.lastPlayerId !== session.playerId && game.players.length > 1
       ? '● your turn — wordser'
       : BASE_TITLE;
   refresh();
@@ -887,6 +953,8 @@ function commitPlacement() {
     );
     return;
   }
+  if (placement && !placement.stealing) lastDir = placement.dir; // a played direction
+  markUsed(placement?.stealing ? 'steal' : 'play');
   doMove(
     move,
     move.type === 'steal'
@@ -904,7 +972,7 @@ function runCpuTurns() {
   let acted = false;
   for (const p of game.players) {
     if (!p.isCpu) continue;
-    if (game.players.length > 1 && game.lastPlayerId === p.id) continue;
+    if (game.lastPlayerId === p.id) continue;
     const r = takeCpuTurn(game, p.id, cpuWordList);
     if (r) {
       acted = true;
@@ -1140,9 +1208,15 @@ function tapCell({ x, y }) {
     selected = { x, y };
   } else {
     selected = null;
-    if (requirePlayer()) placement = { sx: x, sy: y, dir: 'h', entries: [] };
+    if (requirePlayer()) placement = startPlacement(x, y);
   }
   refresh();
+}
+
+/** Start spelling on an empty cell, guessing the direction from the board. */
+function startPlacement(x, y) {
+  const rackSize = game.players[currentPlayer]?.rack.length ?? 7;
+  return { sx: x, sy: y, dir: defaultDirection(game.board, x, y, { rackSize, lastDir }), entries: [] };
 }
 
 /** Shift the whole pending word by (dx, dy), keeping its letters. */
@@ -1374,7 +1448,9 @@ window.addEventListener('keydown', (e) => {
     // so you can build a word straight off an existing letter.
     if (requirePlayer()) {
       selected = null;
-      placement = { sx: kbCursor.x, sy: kbCursor.y, dir: 'h', entries: [] };
+      placement = game.board.get(kbCursor.x, kbCursor.y)
+        ? { sx: kbCursor.x, sy: kbCursor.y, dir: lastDir, entries: [] }
+        : startPlacement(kbCursor.x, kbCursor.y);
       typeLetter(key);
     }
   } else if (key === '+' || key === '=' || key === '-') {
@@ -1392,6 +1468,7 @@ window.addEventListener('keydown', (e) => {
 
 function flipDirection() {
   if (!placement || placement.stealing) return;
+  lastDir = NEXT_DIR[placement.dir]; // an explicit choice, worth remembering
   const typed = placement.entries.map((e) => e.typed);
   placement = {
     sx: placement.sx,
@@ -1492,6 +1569,7 @@ $('add-player-form').addEventListener('submit', (e) => {
 });
 
 $('add-cpu').addEventListener('click', async () => {
+  markUsed('cpu');
   if (online()) {
     try {
       const d = await session.addCpu();
@@ -1570,6 +1648,7 @@ rackBox.addEventListener('pointerup', endRackDrag);
 rackBox.addEventListener('pointercancel', endRackDrag);
 
 $('shuffle').addEventListener('click', () => {
+  markUsed('shuffle');
   const p = game.players[currentPlayer];
   if (!p) return;
   for (let i = p.rack.length - 1; i > 0; i--) {

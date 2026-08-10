@@ -33,12 +33,19 @@ test('you can only play after a friend has played', () => {
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cats');
 });
 
-test('a single player may play freely', () => {
+test('not even a lone player may take two turns in a row', () => {
   const g = makeGame(['cat', 'cats'], {
     players: ['Solo'],
     racks: [['c', 'a', 't', 's', 'e', 'e', 'e']],
   });
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.throws(
+    () => g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] }),
+    /add a friend or a CPU/,
+  );
+  // Somebody else taking a turn — even a CPU passing — frees them again.
+  const cpu = g.addCpu();
+  g.pass({ playerId: cpu.id });
   g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cats');
 });
