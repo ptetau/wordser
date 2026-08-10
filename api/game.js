@@ -7,11 +7,13 @@
 // UPSTASH_REDIS_REST_* env vars), written with a compare-and-set on a
 // sequence number so concurrent moves can't trample each other.
 
-import { Game, GameError } from '../public/engine/game.js';
+import { Game, GameError, turnBelongsTo, waitingOn } from '../public/engine/game.js';
 import { loadBundledDictionary } from '../public/engine/dictionary.js';
 import { buildWordList, takeCpuTurn } from '../public/cpu.js';
 import { RespClient } from './resp.js';
-import { AuthError, signUp, signIn, signOut, whoIs, rememberGame } from './accounts.js';
+import {
+  AuthError, signUp, signIn, signOut, whoIs, rememberGame, changePassphrase,
+} from './accounts.js';
 
 const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
@@ -233,6 +235,16 @@ export async function handleAction(store, body) {
       return { status: 200, data: { signedOut: true } };
     }
 
+    if (action === 'changepass') {
+      const me = await whoIs(store, body.accountToken);
+      if (!me) return { status: 403, data: { error: 'sign in first' } };
+      await changePassphrase(store, me.key, {
+        current: body.current,
+        passphrase: body.passphrase,
+      });
+      return { status: 200, data: { changed: true } };
+    }
+
     if (action === 'mygames') {
       const me = await whoIs(store, body.accountToken);
       if (!me) return { status: 403, data: { error: 'sign in first' } };
@@ -241,16 +253,17 @@ export async function handleAction(store, body) {
       for (const id of me.games) {
         const rec = await store.get(KEY(id));
         if (!rec) continue;
-        const seat = rec.game.players.find((p) => p.account === me.key);
+        const g = rec.game;
+        const seat = g.players.find((p) => p.account === me.key);
         games.push({
           id,
-          day: rec.game.day,
-          players: rec.game.players.map((p) => p.name),
+          day: g.day,
+          players: g.players.map((p) => p.name),
           you: seat?.name ?? null,
           score: seat?.score ?? 0,
-          yourTurn: rec.game.mode === 'turns'
-            ? rec.game.turnId === seat?.id
-            : rec.game.lastPlayerId !== seat?.id,
+          stars: seat?.stars ?? 0,
+          waitingFor: waitingOn(g)?.name ?? null,
+          yourTurn: seat ? turnBelongsTo(g, seat.id) : false,
         });
       }
       return { status: 200, data: { account: me.name, games } };

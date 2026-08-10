@@ -66,6 +66,41 @@ export const account = {
   myGames() {
     return api({ action: 'mygames', accountToken: this.token() });
   },
+
+  changePassphrase(current, next) {
+    return api({ action: 'changepass', accountToken: this.token(), current, passphrase: next });
+  },
+};
+
+const RECENT_KEY = 'wordser:recent';
+const RECENT_MAX = 12;
+
+/**
+ * Games this browser has sat at, newest first. The account knows your games
+ * wherever you are, but a guest has only what this device remembers — and
+ * even signed in it means the list is on screen before the network answers.
+ */
+export const recent = {
+  list() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  },
+  remember(entry) {
+    if (!entry?.id) return;
+    const rest = this.list().filter((g) => g.id !== entry.id);
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify([entry, ...rest].slice(0, RECENT_MAX)));
+    } catch {}
+  },
+  forget(id) {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(this.list().filter((g) => g.id !== id)));
+    } catch {}
+  },
 };
 
 export class Online {

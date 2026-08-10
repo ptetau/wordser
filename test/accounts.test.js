@@ -140,3 +140,73 @@ test('the account helpers refuse nonsense directly', async () => {
   await assert.rejects(() => signUp(store, { name: 'A', passphrase: 'longenough1' }), AuthError);
   await assert.rejects(() => signIn(store, { name: 'nobody', passphrase: 'x' }), AuthError);
 });
+
+test('the passphrase can be changed, and only with the old one', async () => {
+  const store = memoryStore();
+  const { accountToken } = (await act(store, {
+    action: 'signup', name: 'Ada', passphrase: 'lovelace1',
+  })).data;
+
+  const wrong = await act(store, {
+    action: 'changepass', accountToken, current: 'nope12345', passphrase: 'babbage22',
+  });
+  assert.equal(wrong.status, 403);
+  const short = await act(store, {
+    action: 'changepass', accountToken, current: 'lovelace1', passphrase: 'abc',
+  });
+  assert.equal(short.status, 400);
+  // Neither refusal may have changed anything.
+  assert.equal((await act(store, {
+    action: 'signin', name: 'Ada', passphrase: 'lovelace1',
+  })).status, 200);
+
+  const ok = await act(store, {
+    action: 'changepass', accountToken, current: 'lovelace1', passphrase: 'babbage22',
+  });
+  assert.equal(ok.status, 200);
+  assert.equal((await act(store, {
+    action: 'signin', name: 'Ada', passphrase: 'lovelace1',
+  })).status, 403, 'the old passphrase must stop working');
+  assert.equal((await act(store, {
+    action: 'signin', name: 'Ada', passphrase: 'babbage22',
+  })).status, 200);
+  // The session used to change it stays open: you are mid-game.
+  assert.equal((await whoIs(store, accountToken))?.name, 'Ada');
+  // And the new hash is a new hash, not the old one re-salted.
+  const stored = await store.get('wordser:user:ada');
+  assert.equal(JSON.stringify(stored).includes('babbage22'), false);
+});
+
+test('a stranger cannot change your passphrase', async () => {
+  const store = memoryStore();
+  await act(store, { action: 'signup', name: 'Ada', passphrase: 'lovelace1' });
+  const nobody = await act(store, {
+    action: 'changepass', accountToken: 'not-a-token', current: 'lovelace1', passphrase: 'babbage22',
+  });
+  assert.equal(nobody.status, 403);
+});
+
+test('the games list says who each table is waiting on', async () => {
+  const store = memoryStore();
+  const ada = (await act(store, { action: 'signup', name: 'Ada', passphrase: 'lovelace1' })).data;
+  const made = (await act(store, {
+    action: 'create', name: 'Ada', accountToken: ada.accountToken,
+  })).data;
+  await act(store, { action: 'join', id: made.id, name: 'Bob' });
+
+  let mine = (await act(store, { action: 'mygames', accountToken: ada.accountToken })).data;
+  assert.equal(mine.games[0].yourTurn, true);
+  assert.equal(mine.games[0].waitingFor, 'Ada');
+  assert.deepEqual(mine.games[0].players, ['Ada', 'Bob']);
+  assert.equal(mine.games[0].stars, 0);
+
+  // Ada plays; the table is Bob's now, and her list says so.
+  const rec = await store.get(`wordser:game:${made.id}`);
+  rec.game.lastPlayerId = 0;
+  rec.game.turnId = 1;
+  await store.set(`wordser:game:${made.id}`, rec);
+
+  mine = (await act(store, { action: 'mygames', accountToken: ada.accountToken })).data;
+  assert.equal(mine.games[0].yourTurn, false);
+  assert.equal(mine.games[0].waitingFor, 'Bob');
+});

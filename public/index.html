@@ -19,29 +19,66 @@
   </div>
   <aside id="panel">
     <header id="masthead">
-      <h1>wordser</h1>
-      <p class="tagline">n-player scrabble on a looping world</p>
+      <div class="brand">
+        <h1>wordser</h1>
+        <p class="tagline">n-player scrabble on a looping world</p>
+      </div>
+      <nav id="menubar">
+        <button id="games-btn" class="menu-btn" aria-haspopup="true" aria-expanded="false"
+                aria-label="your games" title="your games">
+          🎲<span id="games-badge" class="badge" hidden></span>
+        </button>
+        <button id="account-btn" class="menu-btn" aria-haspopup="true" aria-expanded="false" title="your account">
+          👤<span class="lbl" id="account-btn-name">Sign in</span>
+        </button>
+      </nav>
     </header>
+
+    <div id="menu-layer" hidden>
+      <div id="games-menu" class="menu" hidden role="menu" aria-labelledby="games-btn">
+        <div class="menu-head">
+          <span>Your games</span>
+          <button id="games-refresh" class="mini" title="refresh the list">↻</button>
+        </div>
+        <div id="my-games"></div>
+        <div class="menu-foot">
+          <button id="menu-new-game">＋ New online game</button>
+        </div>
+      </div>
+
+      <div id="account-menu" class="menu" hidden role="menu" aria-labelledby="account-btn">
+        <div class="menu-head"><span>Your account</span></div>
+        <div id="account-out">
+          <p id="account-status" class="muted">Sign in and your games — and your turn alerts — follow you to any device.</p>
+          <div id="account-form">
+            <input id="account-name" placeholder="name" maxlength="20" autocomplete="username" />
+            <input id="account-pass" type="password" placeholder="passphrase" autocomplete="current-password" />
+            <div class="row">
+              <button id="sign-in">Sign in</button>
+              <button id="sign-up" class="primary">Create account</button>
+            </div>
+          </div>
+        </div>
+        <div id="account-in" hidden>
+          <div id="account-who"></div>
+          <label class="menu-toggle">
+            <span>🔔 Tell me when it's my turn</span>
+            <input type="checkbox" id="notify-turns" />
+          </label>
+          <div id="notify-note" class="muted"></div>
+          <details id="passphrase-details">
+            <summary>Change passphrase</summary>
+            <input id="pass-old" type="password" placeholder="current passphrase" autocomplete="current-password" />
+            <input id="pass-new" type="password" placeholder="new passphrase" autocomplete="new-password" />
+            <button id="pass-save" class="mini">Change it</button>
+          </details>
+          <button id="sign-out" class="mini">Sign out</button>
+        </div>
+      </div>
+    </div>
 
     <details id="setup-details" open>
       <summary id="setup-summary">Players &amp; setup</summary>
-      <section id="account-section">
-        <h2>Your account</h2>
-        <div id="account-status" class="muted">Sign in and your games follow you to any device.</div>
-        <div id="account-form">
-          <input id="account-name" placeholder="name" maxlength="20" autocomplete="username" />
-          <input id="account-pass" type="password" placeholder="passphrase" autocomplete="current-password" />
-          <div class="row">
-            <button id="sign-in">Sign in</button>
-            <button id="sign-up">Create account</button>
-          </div>
-        </div>
-        <div id="account-signed" hidden>
-          <div id="my-games"></div>
-          <button id="sign-out" class="mini">Sign out</button>
-        </div>
-      </section>
-
       <section id="online-section">
         <h2>Online</h2>
         <div id="online-status" class="muted">Hot-seat mode: everyone shares this screen.</div>
@@ -109,7 +146,9 @@
         <li><b>Spelling a word.</b> Tap an empty cell, then tap rack tiles (or type) to spell across existing letters. The four buttons under <i>Placing</i> are <b>✕ cancel</b>, <b>→ dir</b>, <b>⌫ undo</b> and <b>✓ play</b> — ✓ shows what the word will score, and greys out with the reason when the word won't do. Keys: <b>Enter</b> plays, <b>Space</b> flips direction, <b>Backspace</b> undoes, <b>Esc</b> cancels.</li>
         <li><b>The direction is guessed</b> from the letters around the cell you tapped: a gap between two tiles runs along them, a tile above or below starts a downward hook, and a corner heads for the open side. Change it any time with <b>→ dir</b> or Space — whatever you choose is what the next tap assumes.</li>
         <li>The first word of a game must cover the <b>★ start cell</b>; after that every word must touch what's already down.</li>
-        <li><b>Sign in</b> under <i>Your account</i> and your games follow you to any device — open a game link on your phone and you are back in your own seat.</li>
+        <li><b>👤 Your account</b> (top right) is where you sign in or make an account — then your games follow you to any device, and opening a game link on your phone puts you back in your own seat. The same menu shows your profile and can change your passphrase.</li>
+        <li><b>🎲 Your games</b> lists every table you're at, with whose move it is; the ones waiting on you carry a ● and the button a badge. Tap one to go there.</li>
+        <li><b>🔔 Tell me when it's my turn</b>, in the account menu, sends a notification when a game is yours to play — including games in other tabs. Never for the game you're looking at, and once per turn at most. The tab title shows a ● either way.</li>
         <li><b>Games take turns</b> by default, in seat order; the admin can switch the table to free-for-all under <i>Players &amp; setup</i>. Either way nobody plays twice in a row. The admin can skip a player who is holding things up, and anyone who sits on their turn for eight hours is passed by.</li>
         <li><b>Write over a word</b> by spelling straight across it: every word it touches must stay real, it has to say something new, and the letters you cover are yours. Letters that already fit cost nothing.</li>
         <li><b>A word pays you once a day</b> — swapping a letter back and forth to re-score it earns nothing the second time.</li>

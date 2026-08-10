@@ -85,6 +85,32 @@ export async function signIn(store, { name, passphrase }) {
   return { name: account.name, token: await openSession(store, key) };
 }
 
+/**
+ * Swap the passphrase for a new one, proving the old one first. Sessions
+ * already open stay open — including this one, which is the point: changing
+ * it shouldn't sign you out of the game you are in the middle of.
+ */
+export async function changePassphrase(store, key, { current, passphrase }) {
+  const account = await store.get(USER(key));
+  if (!account) throw new AuthError('sign in first', 403);
+  const attempt = await derive(current ?? '', Buffer.from(account.salt, 'hex'));
+  const stored = Buffer.from(account.hash, 'hex');
+  if (!(attempt.length === stored.length && timingSafeEqual(attempt, stored))) {
+    throw new AuthError('that is not your current passphrase', 403);
+  }
+  if (String(passphrase ?? '').length < MIN_PASSPHRASE) {
+    throw new AuthError(`a passphrase needs at least ${MIN_PASSPHRASE} characters`);
+  }
+  const salt = randomBytes(16);
+  const hash = await derive(passphrase, salt);
+  await store.set(USER(key), {
+    ...account,
+    salt: salt.toString('hex'),
+    hash: hash.toString('hex'),
+  });
+  return { name: account.name };
+}
+
 async function openSession(store, key) {
   const token = newToken();
   await store.set(SESSION(token), { account: key });

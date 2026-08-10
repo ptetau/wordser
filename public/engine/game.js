@@ -58,6 +58,27 @@ const CHERRY_CHOICES = 7;
 const FIERY_LETTERS = ['j', 'q', 'x', 'z'];
 const GRAPE_POINTS = 10;
 
+/**
+ * Whose move is it? Deliberately written against the plain fields rather
+ * than a live game, so a caller holding only a stored snapshot — the games
+ * menu, listing a dozen tables at once — asks exactly the same question the
+ * engine will answer when the move arrives.
+ *
+ * @param {{players:Array, lastPlayerId:?number, mode:string, turnId:?number}} state
+ */
+export function turnBelongsTo(state, playerId) {
+  if (!state.players?.length) return false;
+  if (state.lastPlayerId === playerId) return false; // never twice running
+  if (state.mode === 'turns') return state.turnId == null || state.turnId === playerId;
+  return true;
+}
+
+/** The seat the game is waiting on, or null when anyone may go. */
+export function waitingOn(state) {
+  const candidates = (state.players ?? []).filter((p) => turnBelongsTo(state, p.id));
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 export class GameError extends Error {}
 
 const fail = (msg) => {
@@ -258,10 +279,7 @@ export class Game {
 
   /** True if this player is the one the game is waiting on. */
   isTheirTurn(playerId) {
-    if (!this.players.length) return false;
-    if (this.lastPlayerId === playerId) return false; // never twice running
-    if (this.mode === 'turns') return this.turnId === null || this.turnId === playerId;
-    return true;
+    return turnBelongsTo(this, playerId);
   }
 
   /** Hand the turn to the next seat along (a no-op in free-for-all). */

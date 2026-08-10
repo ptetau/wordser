@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, GameError, IDLE_SKIP_MS, STAR_JUMP } from '../public/engine/game.js';
+import {
+  Game, GameError, IDLE_SKIP_MS, STAR_JUMP, turnBelongsTo, waitingOn,
+} from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
 import { WORLD } from '../public/engine/board.js';
 import { mulberry32 } from '../public/engine/tiles.js';
@@ -304,4 +306,48 @@ test('a newcomer breaks the deadlock when the turn has nowhere to go', () => {
   const cpu = g.addCpu();
   assert.equal(g.turnId, cpu.id);
   assert.equal(g.isTheirTurn(cpu.id), true);
+});
+
+// ------------------------------------------- the same answer from a snapshot
+
+test('a stored snapshot answers "whose turn" exactly as the live game does', () => {
+  for (const mode of ['turns', 'free']) {
+    const g = makeGame(['cat', 'cot'], {
+      mode,
+      racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
+    });
+    g.addPlayer('Cass');
+    const check = (why) => {
+      const snap = JSON.parse(JSON.stringify(g.toJSON()));
+      for (const p of g.players) {
+        assert.equal(
+          turnBelongsTo(snap, p.id),
+          g.isTheirTurn(p.id),
+          `${mode}: ${p.name} ${why}`,
+        );
+      }
+    };
+    check('before anyone plays');
+    g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+    check('after Ana plays');
+    g.pass({ playerId: 1 });
+    check('after Ben passes');
+  }
+});
+
+test('waitingOn names the one seat that may move, and nobody in a free-for-all', () => {
+  const turns = makeGame(['cat'], { mode: 'turns' });
+  turns.addPlayer('Cass');
+  assert.equal(waitingOn(turns).name, 'Ana');
+
+  const free = makeGame(['cat'], { mode: 'free' });
+  free.addPlayer('Cass');
+  assert.equal(waitingOn(free), null, 'three players may all move: nobody in particular');
+
+  // Once two of the three have been ruled out, there is a name again.
+  free.lastPlayerId = 0;
+  assert.equal(waitingOn(free), null);
+  const duo = makeGame(['cat'], { mode: 'free' });
+  duo.lastPlayerId = 0;
+  assert.equal(waitingOn(duo).name, 'Ben');
 });

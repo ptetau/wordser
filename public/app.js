@@ -1,4 +1,4 @@
-import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX } from './engine/game.js';
+import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX, waitingOn } from './engine/game.js';
 // Moves that leave your turn where it is — a mutation among them: it trades a
 // tile for a tile and hands the seat to nobody.
 const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'mutate']);
@@ -10,7 +10,8 @@ import { feasibleDirection } from './placement.js';
 import { drawFruit } from './fruit.js';
 import { FLOURISH_MS, flourishFor, flourishAt } from './flourish.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
-import { Online, NetError, account } from './net.js';
+import { Online, NetError, account, recent } from './net.js';
+import { notify } from './notify.js';
 import parlour from './themes/parlour.js';
 
 const $ = (id) => document.getElementById(id);
@@ -103,7 +104,7 @@ function markUsed(...actions) {
 
 // One at a time: two sweeps in a 330px column read as decoration, one
 // reads as a pointer. Order is which hint helps most when several apply.
-const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange'];
+const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange', 'account'];
 let glintQueue = [];
 
 /** Glint `el` while `action` is still unfamiliar. */
@@ -844,6 +845,9 @@ function renderOnline() {
   // Only when it is the answer: alone at the table, having already played.
   const stuck = game.players.length === 1 && game.lastPlayerId === currentPlayer;
   if (!$('cpu-section').hidden && stuck) glint($('add-cpu'), 'cpu');
+  // Playing with other people and nobody knows who you are: an account is
+  // what carries this game to your phone and tells you when it's your go.
+  if (online() && !account.get() && game.players.length > 1) glint($('account-btn'), 'account');
   $('share').hidden = !online();
   document.body.classList.toggle(
     'no-game',
@@ -1011,11 +1015,25 @@ function adoptView(d) {
     if (scored) startFlourish(game.lastMove.keys, Number(scored[1]));
   }
   if (changed) announceArrivals();
-  document.title =
-    online() && game.lastPlayerId !== session.playerId && game.players.length > 1
-      ? '● your turn — wordser'
-      : BASE_TITLE;
+  noteTurnHere();
+  rememberThisGame();
   refresh();
+}
+
+/** Keep this table in the device's own list, so the games menu knows it. */
+function rememberThisGame() {
+  if (!online()) return;
+  const me = game.players[session.playerId];
+  recent.remember({
+    id: session.id,
+    day: game.day,
+    players: game.players.map((p) => p.name),
+    score: me?.score ?? 0,
+    stars: me?.stars ?? 0,
+    yourTurn: game.isTheirTurn(session.playerId) && game.players.length > 1,
+    waitingFor: waitingOn(game)?.name ?? null,
+  });
+  renderGames();
 }
 
 async function doMove(move, describe) {
@@ -1261,7 +1279,8 @@ setInterval(() => {
 }, 1000);
 
 function askName() {
-  const typed = ($('online-name').value || $('player-name').value).trim();
+  // Signed in? Then you have already said who you are.
+  const typed = ($('online-name').value || $('player-name').value).trim() || account.get()?.name;
   if (!typed) {
     status('enter your name first', 'error');
     $('online-name').focus();
@@ -2093,36 +2112,65 @@ function endRackDrag(e) {
 rackBox.addEventListener('pointerup', endRackDrag);
 rackBox.addEventListener('pointercancel', endRackDrag);
 
-// ------------------------------------------------------------------ account
-async function renderAccount() {
-  const who = account.get();
-  $('account-form').hidden = Boolean(who);
-  $('account-signed').hidden = !who;
-  $('account-status').textContent = who
-    ? `Signed in as ${who.name} — your games follow you anywhere.`
-    : 'Sign in and your games follow you to any device.';
-  if (!who) return;
-  try {
-    const { games } = await account.myGames();
-    const box = $('my-games');
-    box.innerHTML = '';
-    if (!games.length) {
-      box.innerHTML = '<div class="muted">No games yet — create one below.</div>';
-      return;
-    }
-    for (const g of games) {
-      const b = document.createElement('button');
-      if (g.yourTurn) b.classList.add('your-turn');
-      b.innerHTML = `${g.yourTurn ? '● ' : ''}${esc(g.players.join(', '))}
-        <div class="when">day ${g.day} · ${g.score} points${g.yourTurn ? ' · your turn' : ''}</div>`;
-      b.onclick = () => {
-        location.search = `?g=${encodeURIComponent(g.id)}`;
-      };
-      box.appendChild(b);
-    }
-  } catch {
-    $('my-games').innerHTML = '<div class="muted">Could not reach your games.</div>';
+// -------------------------------------------------------------- the menubar
+//
+// Two things belong to the player rather than to the table: their account
+// and the games they are in. They open as popovers from the masthead, so
+// they cost nothing until asked for and never crowd the game panel.
+
+const MENUS = { account: 'account-menu', games: 'games-menu' };
+let openMenu = null;
+
+function showMenu(which) {
+  openMenu = which;
+  $('menu-layer').hidden = which === null;
+  for (const [name, id] of Object.entries(MENUS)) {
+    $(id).hidden = name !== which;
+    $(`${name}-btn`).setAttribute('aria-expanded', String(name === which));
   }
+  if (which === 'games') refreshGames();
+  if (which === 'account') renderAccount();
+}
+
+const toggleMenu = (which) => showMenu(openMenu === which ? null : which);
+
+/** A table you can only be told about if the game knows who you are. */
+const waitingOnYou = (g) => Boolean(g.yourTurn) && (g.players?.length ?? 0) > 1;
+
+$('account-btn').addEventListener('click', () => {
+  markUsed('account');
+  toggleMenu('account');
+});
+$('games-btn').addEventListener('click', () => toggleMenu('games'));
+
+// Click away or press Esc to close, the way every other menu behaves.
+document.addEventListener('pointerdown', (e) => {
+  if (!openMenu) return;
+  if ($('menu-layer').contains(e.target) || $('menubar').contains(e.target)) return;
+  showMenu(null);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && openMenu) {
+    showMenu(null);
+    $(`${openMenu}-btn`)?.focus();
+  }
+}, true);
+
+// ------------------------------------------------------------------ account
+function renderAccount() {
+  const who = account.get();
+  $('account-out').hidden = Boolean(who);
+  $('account-in').hidden = !who;
+  $('account-btn-name').textContent = who ? who.name : 'Sign in';
+  if (!who) return;
+  const mine = knownGames();
+  const stars = mine.reduce((n, g) => n + (g.stars ?? 0), 0);
+  const turns = mine.filter(waitingOnYou).length;
+  $('account-who').innerHTML = `<b>${esc(who.name)}</b>
+    <div class="muted">${mine.length} game${mine.length === 1 ? '' : 's'}${
+      turns ? ` · ${turns} waiting on you` : ''
+    }${stars ? ` · <span class="stars">${'★'.repeat(Math.min(stars, 5))}</span> ${stars}` : ''}</div>`;
+  renderNotifyToggle();
 }
 
 const withAccount = async (fn, verb) => {
@@ -2136,7 +2184,8 @@ const withAccount = async (fn, verb) => {
     await fn(name, pass);
     $('account-pass').value = '';
     status(`${verb} as ${account.get().name}`, 'good');
-    await renderAccount();
+    renderAccount();
+    await refreshGames();
   } catch (err) {
     showError(err);
   }
@@ -2146,9 +2195,194 @@ $('sign-in').addEventListener('click', () => withAccount((n, p) => account.signI
 $('sign-up').addEventListener('click', () => withAccount((n, p) => account.signUp(n, p), 'account made — signed in'));
 $('sign-out').addEventListener('click', async () => {
   await account.signOut();
+  accountGames = [];
   status('signed out — this device keeps the games it already joined', '');
   renderAccount();
+  renderGames();
 });
+
+$('pass-save').addEventListener('click', async () => {
+  const current = $('pass-old').value;
+  const next = $('pass-new').value;
+  if (!current || !next) {
+    status('both passphrases, please', 'error');
+    return;
+  }
+  try {
+    await account.changePassphrase(current, next);
+    $('pass-old').value = $('pass-new').value = '';
+    $('passphrase-details').open = false;
+    status('passphrase changed — you stay signed in here', 'good');
+  } catch (err) {
+    showError(err);
+  }
+});
+
+// -------------------------------------------------------------- games menu
+let accountGames = [];
+let gamesPending = false;
+
+/** Your games as best we know them: the account's list, else this device's. */
+function knownGames() {
+  if (account.get() && accountGames.length) return accountGames;
+  return recent.list();
+}
+
+async function refreshGames() {
+  renderGames(); // whatever we already know, on screen at once
+  if (!account.get() || gamesPending) return;
+  gamesPending = true;
+  try {
+    const { games } = await account.myGames();
+    accountGames = games;
+    for (const g of games) recent.remember(gameCard(g));
+    renderGames();
+    renderAccount();
+    noteTurnsElsewhere(games);
+  } catch {
+    if (!recent.list().length) {
+      $('my-games').innerHTML = '<div class="muted">Could not reach your games.</div>';
+    }
+  } finally {
+    gamesPending = false;
+  }
+}
+
+const gameCard = (g) => ({
+  id: g.id, day: g.day, players: g.players, score: g.score,
+  stars: g.stars ?? 0, yourTurn: g.yourTurn, waitingFor: g.waitingFor ?? null,
+});
+
+function renderGames() {
+  const box = $('my-games');
+  const games = knownGames();
+  const here = online() ? session.id : null;
+  box.innerHTML = '';
+  if (!games.length) {
+    box.innerHTML = account.get()
+      ? '<div class="muted">No games yet — start one below and it will show up here.</div>'
+      : '<div class="muted">No online games on this device yet. Sign in and your games follow you anywhere.</div>';
+  }
+  for (const g of games) {
+    const b = document.createElement('button');
+    if (waitingOnYou(g)) b.classList.add('your-turn');
+    if (g.id === here) b.classList.add('here');
+    const who = (g.players?.length ?? 0) < 2
+      ? 'just you so far — share the link'
+      : g.yourTurn
+        ? 'your turn'
+        : g.waitingFor
+          ? `waiting for ${g.waitingFor}`
+          : 'in play';
+    b.innerHTML = `${waitingOnYou(g) ? '● ' : ''}${esc(g.players.join(', '))}
+      <div class="when">day ${g.day} · ${g.score} points · ${esc(who)}${
+        g.id === here ? ' · you are here' : ''
+      }</div>`;
+    b.onclick = () => {
+      showMenu(null);
+      if (g.id === here) return;
+      location.search = `?g=${encodeURIComponent(g.id)}`;
+    };
+    box.appendChild(b);
+  }
+  if (!account.get() && games.length) {
+    const note = document.createElement('div');
+    note.className = 'muted';
+    note.style.fontSize = '11.5px';
+    note.textContent = 'On this device only — sign in to carry them to your phone.';
+    box.appendChild(note);
+  }
+  const waiting = games.filter(waitingOnYou).length;
+  $('games-badge').textContent = String(waiting);
+  $('games-badge').hidden = waiting === 0;
+}
+
+$('games-refresh').addEventListener('click', () => refreshGames());
+$('menu-new-game').addEventListener('click', () => {
+  showMenu(null);
+  $('setup-details').open = true;
+  $('create-online').click();
+});
+
+// ----------------------------------------------------------- notifications
+function renderNotifyToggle() {
+  const box = $('notify-turns');
+  const note = $('notify-note');
+  box.checked = notify.enabled();
+  box.disabled = !notify.supported() || notify.permission() === 'denied';
+  note.textContent = !notify.supported()
+    ? 'This browser has no notifications to give.'
+    : notify.permission() === 'denied'
+      ? 'Your browser is blocking notifications for this site — turn them back on in its site settings.'
+      : box.checked
+        ? "You'll be told when a game is waiting on you, even in another tab."
+        : '';
+}
+
+$('notify-turns').addEventListener('change', async (e) => {
+  if (!e.target.checked) {
+    notify.disable();
+    status('turn alerts off', '');
+  } else {
+    const result = await notify.enable();
+    status(
+      {
+        on: "turn alerts on — I'll tell you when a game is waiting on you 🔔",
+        blocked: 'your browser is blocking notifications for this site',
+        dismissed: 'no permission given, so no alerts',
+        unsupported: 'this browser has no notifications to give',
+      }[result],
+      result === 'on' ? 'good' : 'error',
+    );
+  }
+  renderNotifyToggle();
+});
+
+// One alert per turn per game: a game only gets to speak again once the
+// turn has passed on and come back.
+const told = new Set();
+
+/** The game on screen, told only when you can't see the banner. */
+function noteTurnHere() {
+  const yours = online() && game.players.length > 1 && game.isTheirTurn(session.playerId);
+  document.title = yours ? '● your turn — wordser' : BASE_TITLE;
+  if (!yours) {
+    told.delete(session.id);
+    return;
+  }
+  if (told.has(session.id) || !document.hidden) return;
+  told.add(session.id);
+  const others = game.players.filter((p) => p.id !== session.playerId).map((p) => p.name);
+  notify.show('Your turn in wordser', {
+    body: others.length ? `with ${others.join(', ')}` : 'the board is yours',
+    tag: `wordser:${session.id}`,
+  });
+}
+
+/** The other tables: they can only speak through the games list. */
+function noteTurnsElsewhere(games) {
+  for (const g of games) {
+    if (online() && g.id === session.id) continue; // that one is noteTurnHere's
+    if (!waitingOnYou(g)) {
+      told.delete(g.id);
+      continue;
+    }
+    if (told.has(g.id)) continue;
+    told.add(g.id);
+    notify.show('Your turn in wordser', {
+      body: `${g.players.filter((n) => n !== g.you).join(', ')} — day ${g.day}`,
+      tag: `wordser:${g.id}`,
+      url: `?g=${encodeURIComponent(g.id)}`,
+    });
+  }
+}
+
+// Your other games tick along without you looking at them, so the badge and
+// the alerts need a slow poll of their own. A minute is plenty for a game
+// whose turns take hours.
+setInterval(() => {
+  if (account.get()) refreshGames();
+}, 60_000);
 
 $('fly-camera').addEventListener('change', (e) => {
   setFly(e.target.checked);
@@ -2207,6 +2441,8 @@ resize();
 refresh();
 // Whatever state we opened in, the loading notice must not outlive the load.
 renderAccount();
+renderGames();
+if (account.get()) refreshGames();
 if (pendingJoinId) status('you were invited to this game — enter your name, then join');
 else if (online()) status('welcome back');
 else status('add players, or create an online game');
@@ -2223,4 +2459,8 @@ window.wordser = {
   startFlourish,
   get flourishing() { return flourishing; },
   cam,
+  showMenu,
+  refreshGames,
+  noteTurnsElsewhere,
+  noteTurnHere,
 };

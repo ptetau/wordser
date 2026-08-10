@@ -21,6 +21,14 @@ Two ways to play:
   cheat their rack. (Locally `npm start` serves the API from memory; the
   deployed site stores games in Redis.)
 
+Two things belong to you rather than to the table, and both live as menus in
+the masthead: **👤 your account** (sign in, or make one; change your
+passphrase; switch turn alerts on) and **🎲 your games** (every table you're
+at, whose turn it is at each, and a badge counting the ones waiting on you).
+Turn on 🔔 *Tell me when it's my turn* and the browser taps you on the
+shoulder when a game is yours to move — including games in other tabs, which
+are polled once a minute in the background.
+
 Tap a placed tile to steal or mutate its word — a steal is spelled right
 over the old word (its letters are yours to reuse; arrows slide your word
 along the line), and a mutation tells you which tile the swap puts in your
@@ -156,12 +164,29 @@ npm test           # engine + API test suite (node --test, no dependencies)
   back.
 - **A new mark when the bag runs dry.** The moment the day's last letter is
   drawn, the ★ jumps at least twenty cells clear of where it was.
-- **Accounts.** Sign in with a name and a passphrase and your games follow
-  you to any device: the seats you hold are tied to the account, so opening
-  a game link on your phone puts you back in your own chair. The passphrase
-  is stretched with scrypt over a per-account salt and compared in constant
-  time; it is never stored. Playing without an account works exactly as
-  before.
+- **Accounts.** Sign in under **👤** with a name and a passphrase and your
+  games follow you to any device: the seats you hold are tied to the
+  account, so opening a game link on your phone puts you back in your own
+  chair. The same menu holds your profile — the tables you're at, the stars
+  you've won, and a passphrase change (which needs the old one, and leaves
+  the sessions you already have open, so it can't sign you out mid-game).
+  The passphrase is stretched with scrypt over a per-account salt and
+  compared in constant time; it is never stored. Playing without an account
+  works exactly as before.
+- **Your games, in one place.** **🎲** lists every table you're at, newest
+  first, with the day, your score and whose move it is; the ones waiting on
+  you carry a ● and the button a badge. Signed in, the list comes from the
+  server and is the same on every device. Signed out, it's whatever this
+  browser has joined — the game itself is still there, it just can't follow
+  you elsewhere.
+- **Turn alerts.** Switch on 🔔 *Tell me when it's my turn* and a
+  notification arrives when a game is yours to move. Nothing is ever sent
+  for the game you're looking at — you can see the banner — and each table
+  may only speak once per turn, so a phone that slept through three of your
+  games wakes to three lines, not thirty. Games other than the one on
+  screen are checked once a minute; turns take hours, so that's ample. The
+  tab title carries a ● as well, for anyone who would rather not grant the
+  permission.
 - **Daily stars.** Scores reset every day (UTC), everyone is dealt a fresh
   rack from a new bag, the ★ start cell wanders to a different double-word
   star, and a fresh crop of fruit is laid out within reach. The player(s)

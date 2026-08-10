@@ -51,8 +51,8 @@ main { display: flex; height: 100%; }
   flex-direction: column;
   gap: 10px;
 }
-#panel h1 { margin: 0; font-size: 26px; letter-spacing: 1px; }
-.tagline { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+#panel h1 { margin: 0; font-size: 22px; letter-spacing: 1px; }
+.tagline { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.3; }
 /* Mid-game the masthead is just letterhead: shrink it and give the room
    back to the board. */
 body.playing #panel h1 { font-size: 17px; }
@@ -177,16 +177,81 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 @media (max-width: 340px) { .place-controls .lbl { display: none; } }
 .place-controls button.primary { background: #2f5e39; border-color: #3f7a4b; }
 .place-controls button.primary:hover { background: #387244; }
-#account-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* --------------------------------------------------- masthead menus
+   Two things belong to you rather than to the table — your account and the
+   games you're in — so they live in the masthead, above the game's own
+   panel, and open as popovers instead of taking permanent room. */
+#masthead { display: flex; align-items: center; gap: 8px; }
+#masthead .brand { flex: 1; min-width: 0; }
+#masthead h1 { white-space: nowrap; }
+#menubar { display: flex; gap: 6px; flex-shrink: 0; }
+.menu-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; min-height: 36px; font-size: 14px; position: relative;
+}
+/* The panel is 330px wide whatever the window is doing, so the label is a
+   luxury: the account keeps one (it says who you are, or "Sign in"), the
+   games button makes do with its badge. */
+.menu-btn .lbl {
+  font-size: 12px; color: var(--muted);
+  max-width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.menu-btn[aria-expanded='true'] { background: #2e3542; border-color: var(--accent); }
+.menu-btn .badge {
+  min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;
+  background: var(--accent); color: #22190a;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.menu-btn .badge[hidden] { display: none; }
+@media (max-width: 380px) { .menu-btn .lbl { display: none; } }
+
+#menu-layer[hidden] { display: none; }
+.menu {
+  border: 1px solid var(--panel-border); border-radius: 10px;
+  background: color-mix(in srgb, var(--input-bg) 72%, var(--panel));
+  padding: 10px 12px; margin-bottom: 4px;
+  display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  animation: menu-in 140ms ease-out;
+}
+.menu[hidden] { display: none; }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .menu { animation: none; } }
+.menu-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+}
+.menu-foot button { width: 100%; font-size: 13px; }
+.menu p { margin: 0; font-size: 13px; line-height: 1.4; }
+.menu-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 13px; cursor: pointer; min-height: 40px;
+}
+.menu-toggle input { width: 18px; height: 18px; min-height: 0; accent-color: var(--accent); }
+#notify-note { font-size: 11.5px; line-height: 1.4; }
+#notify-note:empty { display: none; }
+#account-who { font-size: 13px; line-height: 1.5; }
+#account-who b { font-size: 15px; }
+#account-who .stars { color: var(--accent); letter-spacing: 1px; }
+#passphrase-details { font-size: 12.5px; }
+#passphrase-details input { width: 100%; margin-top: 6px; }
+#passphrase-details button { margin-top: 6px; }
+#sign-out { align-self: flex-start; }
+button.primary { background: #2f5e39; border-color: #3f7a4b; }
+button.primary:hover { background: #387244; }
+
+#account-form { display: flex; flex-direction: column; gap: 6px; }
 #account-form .row { display: flex; gap: 6px; }
-#account-form .row button { flex: 1; }
+#account-form .row button { flex: 1; font-size: 13px; padding: 8px 6px; }
 #account-form input { width: 100%; }
-#my-games { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+
+#my-games { display: flex; flex-direction: column; gap: 4px; max-height: 46dvh; overflow-y: auto; }
 #my-games button {
   width: 100%; text-align: left; font-size: 13px; padding: 8px 10px;
 }
 #my-games button.your-turn { border-color: var(--accent); }
-#my-games .when { color: var(--muted); font-size: 11px; }
+#my-games button.here { background: color-mix(in srgb, var(--accent) 12%, var(--input-bg)); }
+#my-games .when { color: var(--muted); font-size: 11px; margin-top: 2px; }
 
 #table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
 #table-rules label {
@@ -237,26 +302,6 @@ details li { margin: 6px 0; }
 #setup-summary::before { content: '▸'; font-size: 10px; }
 #setup-details[open] #setup-summary::before { content: '▾'; }
 #setup-details > section { margin-top: 8px; }
-#setup-details #account-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-#account-form .row { display: flex; gap: 6px; }
-#account-form .row button { flex: 1; }
-#account-form input { width: 100%; }
-#my-games { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
-#my-games button {
-  width: 100%; text-align: left; font-size: 13px; padding: 8px 10px;
-}
-#my-games button.your-turn { border-color: var(--accent); }
-#my-games .when { color: var(--muted); font-size: 11px; }
-
-#table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
-#table-rules label {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  font-size: 13px; color: var(--muted); cursor: pointer;
-  padding: 6px 2px; min-height: 40px;
-}
-#table-rules input { width: 18px; height: 18px; min-height: 0; accent-color: var(--accent); }
-#table-rules label[hidden] { display: none; }
-
 #end-day { margin-top: 8px; }
 
 /* Until a game exists, lead with setup and hide empty game sections. */
