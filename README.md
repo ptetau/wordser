@@ -1,6 +1,6 @@
 # wordser
 
-N-player scrabble on a looping 120×120 world. Letters can be stolen, words
+N-player scrabble on a looping 512×512 world. Letters can be stolen, words
 can be rewritten under your opponents' feet, bonus fruits dot the plain,
 and every day crowns a winner.
 
@@ -42,7 +42,7 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 ## The rules
 
-- **A looping world.** The board is a 120×120 torus: walk off one edge and
+- **A looping world.** The board is a 512×512 torus: walk off one edge and
   you come back on the other, and words may wrap around the seam. The
   opening word on an empty board must cover the ★ start cell (always on a
   double-word star); every later word must connect to what's on the board.
@@ -51,8 +51,12 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Classic premiums, tiled forever.** The premium squares are the actual
   classic scrabble layout — triple-word corners, double-word diagonal X's,
   the triple/double-letter diamonds — stretched to double scale and tiled
-  seamlessly around the torus (period 30 divides the 120-cell world). A
-  premium counts only when the letter on it changed that move.
+  seamlessly around the torus. Each board carries a one-square gutter of
+  plain cells along two sides, making the tile 16 squares (32 cells) so it
+  divides the 512-cell world exactly: 16 boards across, 256 in all, and the
+  pattern meets itself perfectly at the seam. The gutter reads as the margin
+  between boards laid side by side. A premium counts only when the letter on
+  it changed that move.
 - **Play after a friend.** You may only move after another player has moved —
   nobody plays twice in a row (waived while you're alone in the game).
 - **One name each.** Two players in the same game can't share a name —

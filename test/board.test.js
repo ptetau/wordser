@@ -35,12 +35,12 @@ test('allWords lists each maximal word once', () => {
 
 test('the world wraps: words can cross the torus seam', () => {
   const b = new Board();
-  b.set(118, 0, { letter: 'c' });
-  b.set(119, 0, { letter: 'a' });
-  b.set(120, 0, { letter: 't' }); // wraps to (0,0)
+  b.set(510, 0, { letter: 'c' });
+  b.set(511, 0, { letter: 'a' });
+  b.set(512, 0, { letter: 't' }); // wraps to (0,0)
   assert.equal(b.get(0, 0).letter, 't');
   assert.equal(b.wordThrough(0, 0, 'h').word, 'cat');
-  assert.equal(b.wordThrough(-2, 0, 'h').word, 'cat'); // -2 ≡ 118
+  assert.equal(b.wordThrough(-2, 0, 'h').word, 'cat'); // -2 ≡ 510
   assert.equal(b.allWords().length, 1);
 });
 

@@ -9,11 +9,16 @@
 // cells from its neighbours (SCALE = 2), which halves the density and
 // widens the whole lattice.
 
-// TILE 15 (the full classic board) at double scale gives period 30, which
-// divides the 120-cell world evenly — the pattern loops seamlessly across
-// the torus edges.
+// The tile has to divide the world for the pattern to close on itself, and
+// the world is 512 cells — a power of two, which no multiple of the classic
+// 15-square board can divide. So each board is laid out with a one-square
+// gutter of plain cells along two of its sides: 15 + 1 = 16 squares, 32
+// cells at double scale, and 512 / 32 = 16 boards across the torus. The
+// gutter reads as the margin between boards laid side by side, and every
+// board inside it is the genuine article.
 const SCALE = 2;
-const TILE = 15;
+const BOARD = 15; // the classic board, in classic squares
+const TILE = BOARD + 1; // ...plus the gutter that makes the tiling close
 export const PERIOD = TILE * SCALE;
 
 const mod = (n, m) => ((n % m) + m) % m;
@@ -39,8 +44,11 @@ export function premiumAt(x, y) {
   const px = mod(x, PERIOD);
   const py = mod(y, PERIOD);
   if (px % SCALE !== 0 || py % SCALE !== 0) return null;
+  // Centre the board on the origin: the 15 squares either side of it are
+  // the board, the 16th is the gutter between this board and the next.
   let u = mod(px / SCALE + 7, TILE);
   let v = mod(py / SCALE + 7, TILE);
+  if (u >= BOARD || v >= BOARD) return null; // the gutter is always plain
   if (u > 7) u = 14 - u;
   if (v > 7) v = 14 - v;
   return QUADRANT[`${u},${v}`] ?? null;

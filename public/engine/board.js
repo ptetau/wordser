@@ -3,7 +3,7 @@
 // Cells are octagons in the truncated-square tiling (small squares fill the
 // corner gaps, purely decoratively): octagon-to-octagon adjacency is a
 // square lattice, so cells are addressed by (x, y) with x growing right and
-// y growing down. Both axes wrap every WORLD cells — the world is a 120×120
+// y growing down. Both axes wrap every WORLD cells — the world is a 512×512
 // torus. Callers may use any integers; they are wrapped canonically.
 //
 // Words run along the two octagon edge directions:
@@ -15,7 +15,7 @@
 // can later be redefined to a different letter if every word through them
 // stays real.
 
-export const WORLD = 120;
+export const WORLD = 512;
 
 export const DIRS = { h: [1, 0], v: [0, 1] };
 export const DIR_NAMES = Object.keys(DIRS);

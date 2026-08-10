@@ -4,6 +4,7 @@ import { GameError, RACK_TARGET } from '../public/engine/game.js';
 import { Game } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
 import { mulberry32 } from '../public/engine/tiles.js';
+import { WORLD } from '../public/engine/board.js';
 import { makeGame, tilesFor } from './helpers.js';
 
 test('a lemon feeds you two extra letters', () => {
@@ -93,7 +94,7 @@ test('fruits spawn on empty cells near the board, capped and spread out', () => 
   for (let i = 0; i < 40; i++) g.spawnFruit(1);
   assert.ok(g.fruits.size >= 1);
   assert.ok(g.fruits.size <= 12);
-  const toroidal = (a, b) => Math.min(Math.abs(a - b), 120 - Math.abs(a - b));
+  const toroidal = (a, b) => Math.min(Math.abs(a - b), WORLD - Math.abs(a - b));
   for (const k of g.fruits.keys()) {
     const [x, y] = k.split(',').map(Number);
     assert.equal(g.board.get(x, y), null);
@@ -119,7 +120,7 @@ test('fruits and pending choices survive serialization', () => {
 const dist = (a, b) => {
   const dx = Math.abs(a[0] - b[0]);
   const dy = Math.abs(a[1] - b[1]);
-  return Math.max(Math.min(dx, 120 - dx), Math.min(dy, 120 - dy));
+  return Math.max(Math.min(dx, WORLD - dx), Math.min(dy, WORLD - dy));
 };
 const spotsOf = (g) => [...g.fruits.keys()].map((k) => k.split(',').map(Number));
 
