@@ -1229,8 +1229,13 @@ export class Game {
 
   /**
    * Mutate move: swap one letter of an existing word for a tile from your
-   * rack. Every word through the cell must stay real. The replaced tile takes
-   * the place of the one you spent, so it always joins your rack.
+   * rack. Every word through the cell must stay real.
+   *
+   * A mutation is a trade, not a play. It scores nothing and it does not use
+   * your turn — what you get is the tile. The letter you prise off the board
+   * takes the place of the one you spent, so your rack keeps its size and
+   * gains the letter you were after; the move you make with it is still
+   * ahead of you.
    */
   mutate({ playerId, x, y, letter, fromBlank = false }) {
     this.#maybeRollover();
@@ -1259,19 +1264,19 @@ export class Game {
       }
 
       // A swap is one tile out, one tile in, so the old one always fits.
-      rackCopy.push(old.isBlank ? BLANK : old.letter);
+      const got = old.isBlank ? BLANK : old.letter;
+      rackCopy.push(got);
       player.rack = rackCopy;
 
-      const changed = new Set([Board.key(x, y)]);
-      const points = words.reduce((acc, w) => acc + this.#payFor(player, w, changed), 0);
-      this.#noteScored(player, words.map((w) => w.word));
+      // No score, no turn taken, no fruit, no refill: the tile is the whole
+      // point. The board still changed, so the last-word highlight follows it.
       this.lastMove = { playerId, keys: [Board.key(x, y)] };
-      this.#commit(
-        player,
-        points,
-        `mutated ${words.map((w) => `"${w.word.toUpperCase()}"`).join(' & ')}`,
+      this.#noteActed(player);
+      this.log.push(
+        `${player.name}: mutated ${words.map((w) => `"${w.word.toUpperCase()}"`).join(' & ')}` +
+          ` and took the ${got === BLANK ? 'wildcard' : got.toUpperCase()} (free swap)`,
       );
-      return { points, words: words.map((w) => w.word) };
+      return { points: 0, words: words.map((w) => w.word), got };
     } catch (err) {
       this.board.set(x, y, old);
       throw err;
@@ -1312,6 +1317,18 @@ export class Game {
     }
   }
 
+  /**
+   * A snapshot has to own its arrays. The client clones a game to dry-run a
+   * move for the score preview, and a `scored` list shared with the original
+   * let the dry run bank the word on the real game — so the move you then
+   * actually played was "already scored today" and paid nothing.
+   */
+  static #clonePlayer(p) {
+    const copy = { ...p, rack: [...p.rack], scored: [...(p.scored ?? [])] };
+    if (Array.isArray(p.pendingChoice)) copy.pendingChoice = [...p.pendingChoice];
+    return copy;
+  }
+
   /** Plain-data snapshot of the full game state. */
   toJSON() {
     return {
@@ -1323,7 +1340,7 @@ export class Game {
       turnId: this.turnId,
       turnStartedAt: this.turnStartedAt ?? null,
       starJumped: Boolean(this.starJumped),
-      players: this.players.map((p) => ({ ...p, rack: [...p.rack] })),
+      players: this.players.map((p) => Game.#clonePlayer(p)),
       cells: [...this.board.cells.entries()].map(([k, tile]) => {
         const [x, y] = k.split(',').map(Number);
         return { x, y, ...tile };
@@ -1347,7 +1364,7 @@ export class Game {
     game.day = data.day;
     game.dateKey = data.dateKey;
     game.lastPlayerId = data.lastPlayerId;
-    game.players = data.players.map((p) => ({ ...p, rack: [...p.rack] }));
+    game.players = data.players.map((p) => Game.#clonePlayer(p));
     // Games saved before admin rights existed hand them to the first human.
     const firstHuman = game.players.findIndex((p) => !p.isCpu);
     game.adminId = data.adminId ?? (firstHuman === -1 ? null : firstHuman);

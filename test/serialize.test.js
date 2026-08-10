@@ -34,7 +34,7 @@ test('toJSON/fromJSON round-trips a game in progress', () => {
   // The revived game keeps playing by the same rules.
   const r = g2.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' });
   assert.equal(g2.board.wordThrough(0, 0, 'h').word, 'cot');
-  assert.ok(r.points > 0);
+  assert.equal(r.points, 0); // a mutation is a trade, not a play
   // The ousted tile was the wildcard.
   assert.ok(g2.players[1].rack.includes('*'));
 });
@@ -52,4 +52,35 @@ test('apply dispatches plain-data moves', () => {
   g.apply({ type: 'mutate', playerId: 0, x: 1, y: 0, letter: 'a' });
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'dag');
   assert.throws(() => g.apply({ type: 'dance', playerId: 1 }));
+});
+
+test('a clone owns its state: dry-running a move leaves the original alone', () => {
+  const g = makeGame(['cat', 'cot'], {
+    racks: [
+      ['c', 'a', 't', 'e', 'e', 'e', 'e'],
+      ['o', 'e', 'e', 'e', 'e', 'e', 'e'],
+    ],
+  });
+  const dictionary = new Dictionary(['cat', 'cot']);
+
+  // This is what the UI does on every keystroke to show the running score.
+  const preview = Game.fromJSON(g.toJSON(), { dictionary });
+  const shown = preview.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.ok(shown.points > 0);
+
+  assert.deepEqual(g.players[0].scored, [], 'the dry run banked the word for real');
+  assert.equal(g.players[0].score, 0);
+  assert.ok(!g.board.get(0, 0), 'the dry run wrote to the real board');
+
+  // So the move actually played pays what the preview promised.
+  const played = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.equal(played.points, shown.points);
+});
+
+test('a clone owns a pending cherry choice', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  g.players[0].pendingChoice = ['q', 'r', 's'];
+  const clone = Game.fromJSON(g.toJSON(), { dictionary: new Dictionary(['cat']) });
+  clone.players[0].pendingChoice.pop();
+  assert.equal(g.players[0].pendingChoice.length, 3);
 });
