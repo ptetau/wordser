@@ -15,7 +15,8 @@ Two ways to play:
 - **Hot-seat**: add a player per friend on one screen. Tap an empty cell,
   spell a word by tapping rack tiles (or typing), hit ✓/Enter.
 - **Over the internet**: press *Create online game* and share the link.
-  Friends open it, pick a name, and join from their own phones or laptops.
+  Friends open it, pick a name, and join from their own phones or laptops,
+  and everyone already at the table is told the moment somebody new arrives.
   The server validates every move with the same rules engine, so nobody can
   cheat their rack. (Locally `npm start` serves the API from memory; the
   deployed site stores games in Redis.)

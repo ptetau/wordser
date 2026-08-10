@@ -103,3 +103,40 @@ test('online CPU seats get distinct names', async () => {
   assert.deepEqual(names, ['Ana', 'Robo 1 🤖', 'Robo 2 🤖']);
   assert.equal(new Set(names).size, names.length);
 });
+
+test('every arrival announces itself in the log, exactly once', () => {
+  const g = fresh();
+  g.addPlayer('Ana');
+  assert.deepEqual(g.log, ['Ana joined the game 👋']);
+  g.addPlayer('Ben');
+  assert.equal(g.log.filter((l) => l.includes('joined')).length, 2);
+
+  // A CPU seat announces itself the same way, and only once.
+  const cpu = g.addCpu();
+  const joins = g.log.filter((l) => l.includes('joined'));
+  assert.equal(joins.length, 3);
+  assert.equal(joins[2], `${cpu.name} joined the game 👋`);
+
+  // A refused name leaves no trace.
+  assert.throws(() => g.addPlayer('ana'), /already playing/);
+  assert.equal(g.log.filter((l) => l.includes('joined')).length, 3);
+});
+
+test('players already in an online game hear about a new arrival', async () => {
+  const store = memoryStore();
+  const ana = (await handleAction(store, { action: 'create', name: 'Ana' })).data;
+  await handleAction(store, { action: 'join', id: ana.id, name: 'Ben' });
+
+  const anaSees = await handleAction(store, {
+    action: 'state', id: ana.id, playerId: 0, token: ana.token,
+  });
+  assert.match(anaSees.data.game.log.join('\n'), /Ben joined the game/);
+
+  // And so does a CPU seat added by somebody else.
+  await handleAction(store, { action: 'addcpu', id: ana.id, playerId: 0, token: ana.token });
+  const later = await handleAction(store, {
+    action: 'state', id: ana.id, playerId: 0, token: ana.token,
+  });
+  const joins = later.data.game.log.filter((l) => l.includes('joined the game'));
+  assert.deepEqual(joins, ['Ana joined the game 👋', 'Ben joined the game 👋', 'Robo 1 🤖 joined the game 👋']);
+});

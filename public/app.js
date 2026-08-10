@@ -924,6 +924,21 @@ function requirePlayer() {
 }
 
 // -------------------------------------------------------- moves (both modes)
+let seatedNames = null; // who was at the table last time we looked
+
+/** Call out anyone who has arrived since the previous sync. */
+function announceArrivals() {
+  const names = game.players.map((p) => p.name);
+  const mine = game.players[online() ? session.playerId : currentPlayer]?.name;
+  if (seatedNames) {
+    const fresh = names.filter((n) => !seatedNames.has(n) && n !== mine);
+    if (fresh.length) {
+      status(`${fresh.join(' & ')} joined the game 👋`, 'good');
+    }
+  }
+  seatedNames = new Set(names);
+}
+
 function adoptView(d) {
   // A removal shifts every seat below it: the server tells me my new id.
   if (d.you != null && d.you !== session.playerId) {
@@ -941,6 +956,7 @@ function adoptView(d) {
       status(game.log[game.log.length - 1], '');
     }
   }
+  if (changed) announceArrivals();
   document.title =
     online() && game.lastPlayerId !== session.playerId && game.players.length > 1
       ? '● your turn — wordser'
@@ -1721,10 +1737,11 @@ $('add-player-form').addEventListener('submit', (e) => {
   }
   rememberName(name);
   const p = game.addPlayer(name);
+  seatedNames = null; // local seats announce themselves below
   $('player-name').value = '';
   if (currentPlayer == null) currentPlayer = p.id;
   autoStartPlacement();
-  status(`${p.name} joined with a rack of ${p.rack.length}`, 'good');
+  status(`${p.name} joined the game 👋 — dealt ${p.rack.length} tiles`, 'good');
   refresh();
   showPanelTop();
 });
@@ -1744,7 +1761,7 @@ $('add-cpu').addEventListener('click', async () => {
   cpuWordList ??= buildWordList(dictionary);
   const p = game.addCpu();
   if (currentPlayer == null) currentPlayer = p.id;
-  status(`${p.name} joined — it plays whenever it may`, 'good');
+  status(`${p.name} joined the game 👋 — it plays whenever it may`, 'good');
   if (game.players.length > 1) setTimeout(runCpuTurns, 400);
   refresh();
   showPanelTop();

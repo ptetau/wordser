@@ -1,16 +1,18 @@
-// The wordser game: n-player scrabble on an infinite plain.
+// The wordser game: n-player scrabble on a looping 512x512 world.
 //
 // House rules implemented here:
-//   - Infinite board with a recurring criss-cross premium pattern (premium.js).
+//   - A torus board with a recurring criss-cross premium pattern (premium.js).
 //   - Premiums count only for cells whose letter changed this move.
-//   - You can only play after a friend has played: no player may make two
-//     moves in a row (waived while the game has a single player).
-//   - Steal: replace an existing word with a new real word of the same length.
-//     Letters of the old word you don't reuse may be stolen into your rack up
-//     to the rack maximum of 12; the rest are discarded.
+//   - You can only play after a friend has played: nobody makes two moves in
+//     a row, not even the only player at the table.
+//   - Steal: replace an existing word with a new real word along the same
+//     line. Letters of the old word you don't reuse may be stolen into your
+//     rack up to the maximum of 12; the rest fall back into the bag.
 //   - Mutate: swap one letter of an existing word for one of yours, provided
-//     every word through that cell stays real. The ousted letter is yours if
-//     your rack has room.
+//     every word through that cell stays real. The ousted letter takes the
+//     place of the tile you spent, so it always joins your rack.
+//   - Every letter in play comes out of the day's 100-tile bag, and anything
+//     that leaves a rack without reaching the board goes back into it.
 //   - Wildcard redefinition: a blank on the board may be reassigned to a new
 //     letter to fit the word you are playing, provided every word through it
 //     stays real.
@@ -119,6 +121,7 @@ export class Game {
     this.players.push(player);
     this.#refill(player);
     this.adminId ??= player.id; // whoever gets here first runs the game
+    this.log.push(`${clean} joined the game 👋`);
     return player;
   }
 
