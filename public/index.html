@@ -9,7 +9,14 @@
 </head>
 <body>
 <main>
-  <canvas id="board"></canvas>
+  <div id="stage">
+    <canvas id="board"></canvas>
+    <div id="view-controls">
+      <button id="recentre" title="show the last word">⌖</button>
+      <button id="zoom-in" title="zoom in">＋</button>
+      <button id="zoom-out" title="zoom out">－</button>
+    </div>
+  </div>
   <aside id="panel">
     <header id="masthead">
       <h1>wordser</h1>
@@ -50,6 +57,7 @@
 
     <section id="actions-section">
       <h2>Actions</h2>
+      <div id="turn-banner" hidden></div>
       <div id="day-vote" hidden></div>
       <div id="cell-actions" class="muted">Tap an empty cell to start a word.</div>
       <button id="end-day">End the day ★</button>
@@ -68,18 +76,20 @@
     <details id="help-section">
       <summary>How to play</summary>
       <ul>
-        <li>The first word must cover the <b>★ start cell</b>. Tap an empty cell, then tap rack tiles (or type) to spell a word across existing letters. <b>✓/Enter</b> plays it, <b>→↓/Space</b> flips direction, <b>⌫/Backspace</b> undoes, <b>✕/Esc</b> cancels. The direction is guessed from the letters around the cell you tapped — a gap between two tiles runs along them, a tile above or below starts a downward hook — so usually you can just start typing.</li>
-        <li><b>Arrow keys</b> move a board cursor (the view follows): type to start a word there, or press <b>Enter</b> on a tile to steal/mutate it. Arrows also slide a word you're spelling.</li>
-        <li><b>Add CPU player 🤖</b> for a computer opponent — hot-seat or online, it moves right after you do.</li>
+        <li><b>Spelling a word.</b> Tap an empty cell, then tap rack tiles (or type) to spell across existing letters. The four buttons under <i>Placing</i> are <b>✕ cancel</b>, <b>→ dir</b>, <b>⌫ undo</b> and <b>✓ play</b> — ✓ shows what the word will score, and greys out with the reason when the word won't do. Keys: <b>Enter</b> plays, <b>Space</b> flips direction, <b>Backspace</b> undoes, <b>Esc</b> cancels.</li>
+        <li><b>The direction is guessed</b> from the letters around the cell you tapped: a gap between two tiles runs along them, a tile above or below starts a downward hook, and a corner heads for the open side. Change it any time with <b>→ dir</b> or Space — whatever you choose is what the next tap assumes.</li>
+        <li>The first word of a game must cover the <b>★ start cell</b>; after that every word must touch what's already down.</li>
+        <li><b>Whose turn it is</b> is written at the top of Actions. <b>Nobody plays twice in a row</b> — after your move you wait for somebody else, even if you're alone at the table, where the way on is <b>Add CPU player 🤖</b> or a friend joining. Picking a cherry's letter and voting on the end of the day aren't turns.</li>
+        <li><b>Arrow keys</b> move a board cursor (the view follows): type to start a word there, or press <b>Enter</b> on a tile to steal/mutate it. Arrows also slide a word you're spelling. Drag rack tiles to reorder them, or <b>⇄ shuffle</b>.</li>
+        <li><b>Tap a placed tile</b> for the things you can do to it: <b>steal</b> its word — spell your replacement right over it, its letters are free, arrows slide your word along the line, and leftovers join your rack (12 max, the rest drop back into the bag) — or <b>mutate</b> one letter, which shows you the score before you commit. <b>✕ Never mind</b> backs out.</li>
         <li>Spelling across a <i>wildcard</i> with a different letter redefines it — every word it belongs to must stay real.</li>
-        <li>Tap a placed tile to <b>mutate</b> its letter (pick from the grid) or <b>steal</b> its word: spell your replacement right over it — its letters are yours to reuse, arrows slide your word along the line, and leftover letters join your rack (12 max, the rest drop back into the bag).</li>
-        <li><b>⇄ Exchange</b> swaps rack letters for fresh ones instead of playing, and <b>⏭ Pass</b> gives up the turn. The day has one 100-tile bag; once it's dry you can <b>🌙 propose ending the day</b> — others get 2 minutes to agree (unanimous = instant new day) or cancel by playing on. All passing in a row ends the day too.</li>
-        <li><b>Nobody plays twice in a row.</b> After your move you wait for somebody else — even if you are alone at the table, where the way on is <b>Add CPU player 🤖</b> or a friend joining. Picking a cherry's letter and voting on the end of the day aren't turns.</li>
-        <li>The world is a 512×512 loop — walk off one edge and you come back on the other (words can wrap too). Drag to pan, pinch or scroll to zoom. When a word lands off screen the view glides to it; touch the board to take the camera back.</li>
+        <li><b>⇄ Exchange</b> swaps rack letters for fresh ones instead of playing, and <b>⏭ Pass</b> gives up the turn. While you're exchanging or stealing, the rack is outlined so you know which mode you're in. The day has one 100-tile bag; once it's dry you can <b>🌙 propose ending the day</b> — others get 2 minutes to agree (unanimous = instant new day) or cancel by playing on. All passing in a row ends the day too.</li>
+        <li><b>Getting around.</b> The world is a 512×512 loop — walk off one edge and you come back on the other, and words can wrap too. Drag to pan, pinch or scroll to zoom, or use <b>＋ －</b> on the board. When a word lands off screen the view glides to it; touch the board to take the camera back, and <b>⌖</b> returns you to the last word played.</li>
         <li>Premiums recur forever: <span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span>. They only count on letters changed that move.</li>
         <li>Every day lays out <b>ten fruits within reach</b> — a few cells from the ★ and from the words already down, close enough to chase and far enough to be worth it — and more appear near wherever you just played. Cover one with a letter to eat it: 🍋 two extra letters, 🌶️ a high-scoring letter, 🍒 pick one of seven letters, 🍇 +10 points, 🍌 a fresh rack, 🥝 a wildcard. Their letters are drawn from the day's bag like any other, so a fruit can come up empty once the bag runs low — and the six letters you turn down from a cherry go straight back in.</li>
         <li>Scores reset daily: fresh bag, fresh racks, the ★ moves, and a new crop of fruit is laid out. The day's winner earns a permanent ★. Two players can't share a name.</li>
-        <li>The player who started the game is the <b>admin 👑</b>. Next to any other player they get <b>✕</b> to remove that seat (its letters go back in the bag) and <b>👑</b> to hand the admin rights over — handing over is one-way, so the new admin would have to give them back.</li>
+        <li>The player who started the game is the <b>admin 👑</b>. Next to any other player they get <b>✕ remove</b> for that seat (its letters go back in the bag) and <b>👑 admin</b> to hand the rights over — handing over is one-way, so the new admin would have to give them back.</li>
+        <li>New here? Controls you haven't used yet catch the light for a moment when they're the thing to press.</li>
       </ul>
     </details>
 

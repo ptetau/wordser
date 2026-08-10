@@ -22,6 +22,16 @@ body {
   height: 100dvh;
 }
 main { display: flex; height: 100%; }
+#stage { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; }
+#view-controls {
+  position: absolute; left: 10px; bottom: 10px;
+  display: flex; gap: 6px;
+}
+#view-controls button {
+  width: 44px; height: 44px; min-height: 44px; padding: 0; font-size: 18px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  backdrop-filter: blur(2px);
+}
 #board {
   flex: 1; min-width: 0; min-height: 0;
   display: block; cursor: grab;
@@ -59,10 +69,16 @@ input { min-width: 0; }
 button { cursor: pointer; }
 button:hover { background: #2e3542; }
 button:disabled { opacity: 0.4; cursor: default; }
+/* A tap has to acknowledge itself: touch has no hover to fall back on. */
+button:active, .tile:active { transform: translateY(1px); filter: brightness(1.14); }
+button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: none) {
+  button:hover { background: var(--input-bg); } /* don't leave the last tap lit */
+}
 
-/* Glints: a slow sweep of light across a control the player has never used,
-   so a newcomer can see what is worth pressing. Each one stops for good the
-   first time that action is taken (see markUsed in app.js). */
+/* Glints: three sweeps of light across the one control worth pressing next,
+   then silence — an endless shimmer is just wallpaper. Each glint retires
+   for good the first time that action is taken (see markUsed in app.js). */
 @keyframes glint-sweep {
   0% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
   6% { opacity: 1; }
@@ -75,7 +91,11 @@ button:disabled { opacity: 0.4; cursor: default; }
   position: absolute;
   inset: 0;
   background: linear-gradient(100deg, transparent 34%, rgba(255, 245, 214, 0.34) 50%, transparent 66%);
-  animation: glint-sweep 5s ease-in-out infinite;
+}
+.glint.primary::after {
+  /* The green primary needs less, or the sweep reads as a glitch. */
+  background: linear-gradient(100deg, transparent 34%, rgba(255, 245, 214, 0.2) 50%, transparent 66%);
+  animation: glint-sweep 2.4s ease-in-out 0.4s 3;
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -95,16 +115,17 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 .player {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  padding: 10px 8px; border-radius: 8px; cursor: default;
   border: 1px solid transparent;
 }
+.player.pickable { cursor: pointer; }
 .player.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
 .player.waiting { opacity: 0.55; }
 .player .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player .stars { color: var(--accent); letter-spacing: 1px; }
 .player .score { font-variant-numeric: tabular-nums; color: var(--good); }
 .admin-tools { display: flex; gap: 4px; flex-shrink: 0; }
-.admin-tools .mini { min-width: 26px; padding: 2px 5px; opacity: 0.7; }
+.admin-tools .mini { min-width: 36px; min-height: 36px; padding: 2px 6px; opacity: 0.75; }
 .admin-tools .mini:hover { opacity: 1; }
 
 #rack { display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; }
@@ -118,17 +139,31 @@ button:disabled { opacity: 0.4; cursor: default; }
   border: none; padding: 0; min-height: 0;
   user-select: none; -webkit-user-select: none;
 }
-.tile:hover { filter: brightness(1.06); }
+.tile:hover { filter: brightness(1.14); }
 .tile.blank { background: var(--tile-blank); }
 .tile sub { position: absolute; right: 4px; bottom: 2px; font-size: 10px; font-weight: 400; }
+
+#turn-banner {
+  padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; font-size: 14px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+#turn-banner.yours { background: color-mix(in srgb, var(--good) 16%, var(--panel)); }
+#turn-banner.waiting { background: var(--input-bg); color: var(--muted); }
+#turn-banner[hidden] { display: none; }
 
 #cell-actions { font-size: 13px; line-height: 1.5; }
 #cell-actions .word-btns button { display: block; width: 100%; margin: 4px 0; text-align: left; }
 .place-controls { display: flex; gap: 6px; margin-top: 6px; }
 .place-controls button { flex: 1; font-size: 17px; padding: 6px 0; }
+.place-controls .lbl { font-size: 11px; opacity: 0.8; margin-left: 4px; }
+@media (max-width: 340px) { .place-controls .lbl { display: none; } }
 .place-controls button.primary { background: #2f5e39; border-color: #3f7a4b; }
 .place-controls button.primary:hover { background: #387244; }
-#end-day { margin-top: 8px; width: 100%; }
+#end-day {
+  margin-top: 10px; width: 100%; font-size: 13px;
+  background: transparent; border-color: var(--panel-border); color: var(--muted);
+}
+#end-day:hover { background: var(--input-bg); color: var(--ink); }
 .muted { color: var(--muted); }
 
 #log { font-size: 12px; color: #aeb6c2; max-height: 150px; overflow-y: auto; line-height: 1.5; }
@@ -185,11 +220,18 @@ details li { margin: 6px 0; }
   .tile { width: 48px; height: 52px; font-size: 22px; }
   .tile.small { width: 40px; height: 44px; font-size: 17px; }
   .place-controls button { min-height: 44px; }
+  .admin-tools .mini { min-width: 44px; min-height: 44px; }
+  #shuffle { min-height: 44px; }
 }
 
 .tile.dragging { opacity: 0.75; z-index: 6; position: relative; pointer-events: none; }
 
 #rack .tile { touch-action: none; }
+body.mode-exchange #rack, body.mode-steal #rack {
+  outline: 2px dashed var(--accent); outline-offset: 6px; border-radius: 8px;
+}
+body.mode-steal #rack { outline-color: var(--good); }
+#rack .tile.selected { opacity: 0.6; }
 .tile.selected { outline: 3px solid var(--accent); outline-offset: -1px; }
 
 #day-vote {

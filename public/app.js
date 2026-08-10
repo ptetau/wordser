@@ -49,6 +49,11 @@ const savedName = (() => {
     return '';
   }
 })();
+/** Bring the panel back to the top — new sections appear above the fold. */
+function showPanelTop() {
+  $('panel').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function rememberName(name) {
   try {
     localStorage.setItem('wordser:name', name);
@@ -59,47 +64,61 @@ function rememberName(name) {
 // A newcomer can't tell which controls do anything. Each one that matters
 // carries a slow sweep of light until they use it once, then that glint is
 // gone for good — the hint retires itself instead of nagging.
-const GLINT_KEY = 'wordser:used';
-const used = new Set(
-  (() => {
-    try {
-      return JSON.parse(localStorage.getItem(GLINT_KEY) ?? '[]');
-    } catch {
-      return [];
-    }
-  })(),
-);
+// Keyed per player: a shared hot-seat device shouldn't spend player two's
+// hints on player one.
+const glintKey = () => {
+  const me = game?.players?.[currentPlayer]?.name ?? savedName ?? '';
+  return `wordser:used:${me.trim().toLowerCase()}`;
+};
+let usedFor = null;
+let used = new Set();
+function loadUsed() {
+  const key = glintKey();
+  if (key === usedFor) return used;
+  usedFor = key;
+  try {
+    used = new Set(JSON.parse(localStorage.getItem(key) ?? '[]'));
+  } catch {
+    used = new Set();
+  }
+  return used;
+}
 
 /** Record that the player has now done this, retiring its glint. */
 function markUsed(...actions) {
+  loadUsed();
   let fresh = false;
   for (const a of actions) if (!used.has(a)) (used.add(a), (fresh = true));
   if (!fresh) return;
   try {
-    localStorage.setItem(GLINT_KEY, JSON.stringify([...used]));
+    localStorage.setItem(usedFor, JSON.stringify([...used]));
   } catch {
     // Private browsing: the glints simply come back next visit.
   }
 }
 
-// Two at a time, most instructive first — more than that is wallpaper.
-const MAX_GLINTS = 2;
-const GLINT_ORDER = ['play', 'cpu', 'steal', 'mutate', 'exchange', 'propose', 'pass', 'flip', 'shuffle'];
+// One at a time: two sweeps in a 330px column read as decoration, one
+// reads as a pointer. Order is which hint helps most when several apply.
+const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange'];
 let glintQueue = [];
 
 /** Glint `el` while `action` is still unfamiliar. */
 function glint(el, action) {
-  if (el && !used.has(action)) glintQueue.push({ el, action });
+  if (el && !loadUsed().has(action)) glintQueue.push({ el, action });
   return el;
 }
 
-/** Light the most useful unfamiliar controls of this render, and no more. */
+/** Light the single most useful unfamiliar control of this render. */
 function applyGlints() {
-  glintQueue
-    .sort((a, b) => GLINT_ORDER.indexOf(a.action) - GLINT_ORDER.indexOf(b.action))
-    .slice(0, MAX_GLINTS)
-    .forEach(({ el }) => el.classList.add('glint'));
+  // Persistent nodes keep the class across renders; clear before re-picking.
+  for (const el of document.querySelectorAll('.glint')) el.classList.remove('glint');
+  const best = glintQueue.sort(
+    (a, b) => GLINT_ORDER.indexOf(a.action) - GLINT_ORDER.indexOf(b.action),
+  )[0];
   glintQueue = [];
+  if (!best) return;
+  // Re-adding the class restarts the burst, so each turn gets one nudge.
+  best.el.classList.add('glint');
 }
 
 // ---------------------------------------------------------------- rendering
@@ -428,11 +447,24 @@ function renderRack() {
     $('rack-hint').textContent = '';
     return;
   }
-  $('rack-hint').textContent =
-    (online() ? '' : `— ${p.name} `) + `· ${game.bag.pool.length} in today's bag`;
-  const pendingUse = placement
-    ? placement.entries.filter((e) => !e.existing).map((e) => (e.fromBlank ? BLANK : e.letter))
-    : [];
+  $('rack-hint').textContent = exchanging
+    ? '— tap up to 7 to swap back into the bag'
+    : placement?.stealing
+      ? "— the old word's letters are free"
+      : (online() ? '' : `— ${p.name} `) + `· ${game.bag.pool.length} in today's bag`;
+  // Which rack tiles the pending word actually spends. A steal re-uses the
+  // old word's letters first, so only what they can't cover leaves the rack.
+  let pendingUse = [];
+  if (placement?.stealing) {
+    const free = [...placement.stealing.word];
+    for (const e of placement.entries) {
+      const i = free.indexOf(e.letter);
+      if (i !== -1) free.splice(i, 1);
+      else pendingUse.push(e.fromBlank ? BLANK : e.letter);
+    }
+  } else if (placement) {
+    pendingUse = placement.entries.filter((e) => !e.existing).map((e) => (e.fromBlank ? BLANK : e.letter));
+  }
   const rack = [...p.rack];
   for (const u of pendingUse) {
     const i = rack.indexOf(u);
@@ -448,7 +480,6 @@ function renderRack() {
     box.appendChild(t);
   });
   $('shuffle').hidden = !p;
-  if (p) glint($('shuffle'), 'shuffle');
 }
 
 function rackTap(letter, index) {
@@ -512,7 +543,9 @@ function letterGrid(box, { available = null, onPick }) {
 
 function renderActions() {
   const box = $('cell-actions');
-  $('end-day').hidden = online() || !game.players.length;
+  // No business on screen mid-move, and never one careless tap from a reset.
+  $('end-day').hidden =
+    online() || !game.players.length || Boolean(placement || mutating || exchanging || pickingBlank);
 
   if (pickingBlank) {
     box.innerHTML = '<b>Blank tile:</b> play it as which letter? <button id="cancel-pick" class="mini">✕</button>';
@@ -588,14 +621,38 @@ function renderActions() {
         if (hasBlank || p.rack.includes(l)) available.add(l);
       }
     }
-    box.innerHTML = '<b>Mutate:</b> swap in which letter? <button id="cancel-mutate" class="mini">✕</button>';
+    const old = game.board.get(mutating.x, mutating.y);
+    const was = old ? Board.effective(old).toUpperCase() : '?';
+    if (mutating.pick) {
+      // Second step: say what the swap does, and let them commit or back out.
+      const preview = previewMutate(mutating.pick);
+      const note = preview?.ok
+        ? `<span class="preview-ok">${preview.points} pts</span>`
+        : `<span class="preview-bad">${esc(preview?.message ?? 'not a legal swap')}</span>`;
+      box.innerHTML = `<b>Mutate:</b> ${was} → ${mutating.pick.toUpperCase()} · ${note}
+        <div class="place-controls">
+          <button id="mutate-back">✕<span class="lbl">back</span></button>
+          <button id="mutate-go" class="${preview?.ok ? 'primary' : ''}" ${preview?.ok ? '' : 'disabled'}>✓<span class="lbl">swap</span></button>
+        </div>`;
+      $('mutate-back').onclick = () => {
+        mutating = { x: mutating.x, y: mutating.y };
+        refresh();
+      };
+      $('mutate-go').onclick = () =>
+        applyMutate(mutating.pick, !game.players[currentPlayer].rack.includes(mutating.pick));
+      return;
+    }
+    box.innerHTML = `<b>Mutate</b> the “${esc(was)}” — swap in which letter? <button id="cancel-mutate" class="mini">✕</button>`;
     $('cancel-mutate').onclick = () => {
       mutating = null;
       refresh();
     };
     letterGrid(box, {
       available,
-      onPick: (l) => applyMutate(l, !game.players[currentPlayer].rack.includes(l)),
+      onPick: (l) => {
+        mutating = { ...mutating, pick: l };
+        refresh();
+      },
     });
     return;
   }
@@ -607,22 +664,22 @@ function renderActions() {
       : preview.ok
         ? ` · <span class="preview-ok">${preview.points} pts${preview.fruit ? ' 🍒' : ''}</span>`
         : ` · <span class="preview-bad">${esc(preview.message)}</span>`;
+    const started = placement.entries.length > 0;
     const heading = placement.stealing
       ? `<b>Steal:</b> ${esc(placement.stealing.word.toUpperCase())} → ${word.toUpperCase() || '…'}`
-      : `<b>Placing:</b> ${word.toUpperCase() || '…'}`;
+      : `<b>Placing:</b> ${word.toUpperCase() || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}`;
+    // Cancel sits at the far end from play: they are 6px apart on a phone.
     box.innerHTML = `${heading}${note}
       ${placement.stealing ? '<div class="muted" style="margin-top:2px">spell the new word — arrows slide it along the line</div>' : ''}
       <div class="place-controls">
-        ${placement.stealing ? '' : `<button id="pc-dir" title="cycle direction (Space)">${DIR_GLYPH[placement.dir]}</button>`}
-        <button id="pc-undo" title="undo letter (Backspace)">⌫</button>
-        <button id="pc-cancel" title="cancel (Esc)">✕</button>
-        <button id="pc-play" class="primary" title="play word (Enter)">✓${preview?.ok ? ` ${preview.points}` : ''}</button>
+        <button id="pc-cancel" title="cancel (Esc)">✕<span class="lbl">cancel</span></button>
+        ${placement.stealing ? '' : `<button id="pc-dir" title="cycle direction (Space)">${DIR_GLYPH[placement.dir]}<span class="lbl">dir</span></button>`}
+        <button id="pc-undo" title="undo letter (Backspace)">⌫<span class="lbl">undo</span></button>
+        <button id="pc-play" class="${preview?.ok || !started ? 'primary' : ''}" ${started && !preview?.ok ? 'disabled' : ''} title="play word (Enter)">✓<span class="lbl">${preview?.ok ? `play ${preview.points}` : 'play'}</span></button>
       </div>`;
-    if (!placement.stealing) {
-      glint($('pc-dir'), 'flip');
-      $('pc-dir').onclick = flipDirection;
-    }
-    glint($('pc-play'), 'play');
+    if (!placement.stealing) $('pc-dir').onclick = flipDirection;
+    // The commit gesture, lit exactly when pressing it is the right move.
+    if (preview?.ok) glint($('pc-play'), 'play');
     $('pc-undo').onclick = () => {
       placement.entries.pop();
       refresh();
@@ -637,12 +694,14 @@ function renderActions() {
   if (!selected || !game.board.get(selected.x, selected.y)) {
     box.innerHTML =
       '<span class="muted">Tap an empty cell to spell a word, or a tile to steal/mutate.</span>';
-    if (game.players[currentPlayer]) {
+    const me = game.players[currentPlayer];
+    if (me) {
       const ex = document.createElement('button');
       ex.id = 'exchange-btn';
       ex.style.cssText = 'display:block;width:100%;margin-top:6px';
       ex.textContent = '⇄ Exchange letters instead of playing';
-      glint(ex, 'exchange');
+      // A rescue, never an opener: only once the rack has no vowels.
+      if (!me.rack.some((l) => 'aeiou'.includes(l))) glint(ex, 'exchange');
       ex.onclick = () => {
         markUsed('exchange');
         cancelModes();
@@ -671,7 +730,6 @@ function renderActions() {
       pass.textContent = bagEmpty
         ? '⏭ Pass — the bag is empty; if everyone passes, the day ends'
         : '⏭ Pass turn';
-      glint(pass, 'pass');
       pass.onclick = () =>
         markUsed('pass') ||
         doMove({ type: 'pass' }, (r) =>
@@ -702,14 +760,18 @@ function renderActions() {
   for (const dir of Object.keys(DIRS)) {
     const w = game.board.wordThrough(selected.x, selected.y, dir);
     if (w && w.cells.length >= 2) {
-      mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir), 'steal');
+      mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir));
     }
   }
   mkBtn('Mutate this letter', () => {
     markUsed('mutate');
     mutating = { x: selected.x, y: selected.y };
     refresh();
-  }, 'mutate');
+  });
+  mkBtn('✕ Never mind', () => {
+    selected = null;
+    refresh();
+  });
 }
 
 function renderLog() {
@@ -723,8 +785,9 @@ function renderOnline() {
   $('online-controls').hidden = online() || pendingJoinId !== null;
   $('online-name').hidden = online();
   $('cpu-section').hidden = pendingJoinId !== null;
-  // Alone at the table you can only play once, so point at the way out.
-  if (!$('cpu-section').hidden && game.players.length) glint($('add-cpu'), 'cpu');
+  // Only when it is the answer: alone at the table, having already played.
+  const stuck = game.players.length === 1 && game.lastPlayerId === currentPlayer;
+  if (!$('cpu-section').hidden && stuck) glint($('add-cpu'), 'cpu');
   $('share').hidden = !online();
   document.body.classList.toggle(
     'no-game',
@@ -739,6 +802,38 @@ function renderOnline() {
   } else {
     stat.textContent = 'Hot-seat mode: everyone shares this screen.';
   }
+}
+
+/**
+ * Say whose turn it is, in words. Hot-seat quietly hands the seat on after
+ * every move and nobody passes the device unless they are told to.
+ */
+function renderTurn() {
+  const el = $('turn-banner');
+  const me = online() ? session.playerId : currentPlayer;
+  if (!game.players.length || me == null) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const blocked = game.lastPlayerId === me;
+  if (online()) {
+    const waitingFor = game.players.find((p) => p.id !== game.lastPlayerId);
+    el.className = blocked ? 'waiting' : 'yours';
+    el.innerHTML = blocked
+      ? `Waiting for ${esc(waitingFor?.name ?? 'the others')}…`
+      : '<b>Your turn</b>';
+    return;
+  }
+  if (blocked && game.players.length === 1) {
+    el.className = 'waiting';
+    el.innerHTML = 'You have played — add a friend or a CPU 🤖 to carry on';
+    return;
+  }
+  el.className = blocked ? 'waiting' : '';
+  el.innerHTML = blocked
+    ? `${esc(game.players[me].name)} has played — tap another player to hand over`
+    : `<b>${esc(game.players[me].name)}</b> to play${game.players.length > 1 ? ' — pass the device' : ''}`;
 }
 
 function renderDayVote() {
@@ -772,6 +867,7 @@ function renderDayVote() {
 }
 
 function refresh() {
+  renderTurn();
   renderDayVote();
   renderPlayers();
   renderRack();
@@ -779,6 +875,8 @@ function refresh() {
   renderLog();
   renderOnline();
   applyGlints();
+  document.body.classList.toggle('mode-exchange', Boolean(exchanging));
+  document.body.classList.toggle('mode-steal', Boolean(placement?.stealing));
   canvas.classList.toggle('placing', !!placement);
   render();
 }
@@ -936,6 +1034,21 @@ function previewMove() {
   }
 }
 
+/** Dry-run a mutation so the swap can show its score before it is taken. */
+function previewMutate(letter) {
+  if (currentPlayer == null || !mutating) return null;
+  const fromBlank = !game.players[currentPlayer].rack.includes(letter);
+  try {
+    const clone = Game.fromJSON(game.toJSON(), { dictionary });
+    const r = clone.mutate({ playerId: currentPlayer, x: mutating.x, y: mutating.y, letter, fromBlank });
+    return { ok: true, points: r.points };
+  } catch (err) {
+    if (err instanceof GameError) return { ok: false, message: err.message };
+    console.error(err);
+    return null;
+  }
+}
+
 function applyMutate(letter, fromBlank) {
   const cell = mutating;
   doMove(
@@ -1068,6 +1181,7 @@ async function goOnline(result) {
   adoptView(result.view);
   autoStartPlacement();
   refresh();
+  showPanelTop();
   status('online game ready — share the link!', 'good');
 }
 
@@ -1094,6 +1208,25 @@ $('join-online').addEventListener('click', async () => {
     $('online-name').select();
   }
 });
+
+// The world is 512 cells wide; you can pan until nothing is familiar.
+$('recentre').addEventListener('click', () => {
+  cancelFlight();
+  flyToCells(game.lastMove?.keys ?? [Board.key(game.startCell.x, game.startCell.y)], { force: true });
+});
+const zoomBy = (k) => {
+  cancelFlight();
+  const mx = canvas.clientWidth / 2;
+  const my = canvas.clientHeight / 2;
+  const s2 = Math.min(80, Math.max(20, cam.cell * k));
+  const ratio = s2 / cam.cell;
+  cam.x = (cam.x + mx) * ratio - mx;
+  cam.y = (cam.y + my) * ratio - my;
+  cam.cell = s2;
+  render();
+};
+$('zoom-in').addEventListener('click', () => zoomBy(1.2));
+$('zoom-out').addEventListener('click', () => zoomBy(1 / 1.2));
 
 $('copy-link').addEventListener('click', async () => {
   try {
@@ -1288,7 +1421,7 @@ function nearestCopy(v, to, span) {
  * middle of the view. Already comfortably on screen? Then stay put —
  * nothing is more annoying than the board sliding under your own move.
  */
-function flyToCells(keys) {
+function flyToCells(keys, { force = false } = {}) {
   if (!keys?.length || !canvas.clientWidth) return;
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
@@ -1316,7 +1449,7 @@ function flyToCells(keys) {
   const onScreen =
     cx - halfW - m > cam.x && cx + halfW + m < cam.x + w &&
     cy - halfH - m > cam.y && cy + halfH + m < cam.y + h;
-  if (onScreen) return;
+  if (onScreen && !force) return;
 
   const toX = cx - w / 2;
   const toY = cy - h / 2;
@@ -1381,10 +1514,19 @@ window.addEventListener('keydown', (e) => {
       pickingBlank = null;
       refresh();
     } else if (/^[a-z]$/.test(key)) {
+      mutating = { x: mutating.x, y: mutating.y, pick: key }; // confirm on ✓
+      refresh();
+    } else if (e.key === 'Enter' && mutating.pick) {
       const p = game.players[currentPlayer];
-      const fromBlank = p && !p.rack.includes(key) && p.rack.includes(BLANK);
-      applyMutate(key, fromBlank);
+      applyMutate(mutating.pick, p && !p.rack.includes(mutating.pick));
     }
+    return;
+  }
+
+  // Nothing in progress but a tile is selected: Escape clears the menu.
+  if (selected && e.key === 'Escape') {
+    selected = null;
+    refresh();
     return;
   }
 
@@ -1566,6 +1708,7 @@ $('add-player-form').addEventListener('submit', (e) => {
   autoStartPlacement();
   status(`${p.name} joined with a rack of ${p.rack.length}`, 'good');
   refresh();
+  showPanelTop();
 });
 
 $('add-cpu').addEventListener('click', async () => {
@@ -1586,6 +1729,7 @@ $('add-cpu').addEventListener('click', async () => {
   status(`${p.name} joined — it plays whenever it may`, 'good');
   if (game.players.length > 1) setTimeout(runCpuTurns, 400);
   refresh();
+  showPanelTop();
 });
 
 // Drag rack tiles to rearrange them. Only when nothing is being spelled, so
@@ -1660,6 +1804,9 @@ $('shuffle').addEventListener('click', () => {
 
 $('end-day').addEventListener('click', () => {
   if (online()) return;
+  if (!confirm('End the day now? Scores are locked in, everyone gets a fresh rack, and the ★ moves.')) {
+    return;
+  }
   const winners = game.startNewDay();
   status(
     winners.length
