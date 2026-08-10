@@ -32,9 +32,13 @@ word won't do. Whose turn it is is written at the top of Actions. When a word is
 it isn't already on screen, the camera glides over to it, so you always see
 what just happened — touch the board and the view is yours again. Drag to
 pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
-**⌖** returns you to the last word played — handy on a 512-cell world. The arrow keys drive a board cursor (the viewport follows):
+**⌖** returns you to the last word played — handy on a 512-cell world.
+Once the first word is down, the setup controls (adding players, the share
+link, ending the day) fold away under *Players & setup* so the panel is
+mostly the game; open the fold any time and it stays open. The arrow keys drive a board cursor (the viewport follows):
 type to start a word at the cursor, press Enter on a tile to steal/mutate
-it, and `+`/`-` zoom. Drag rack tiles to rearrange them (or ⇄ shuffle). Your name
+it, and `+`/`-` zoom. Drag rack tiles to rearrange them — the tray slides aside to
+make room and the tile settles into the gap — or ⇄ shuffle them all at once. Your name
 is remembered between visits, and a fresh game starts with the cursor
 already on the ★. Controls you have never used carry a slow glint until you
 try them once. **Add CPU player 🤖** works in both modes: local games

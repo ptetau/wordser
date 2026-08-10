@@ -778,6 +778,22 @@ function renderLog() {
   $('log').innerHTML = game.log.slice(-14).reverse().map((l) => `<div>${esc(l)}</div>`).join('');
 }
 
+// Fold the setup chrome away the moment play actually starts — but only
+// once, so a player who opens it back up keeps it open.
+let setupFolded = false;
+function foldSetupWhenPlaying() {
+  const details = $('setup-details');
+  const underway = game.players.length > 0 && (game.lastMove !== null || game.lastPlayerId !== null);
+  document.body.classList.toggle('playing', underway); // trims the chrome too
+  if (underway && !setupFolded) {
+    setupFolded = true;
+    details.open = false;
+  } else if (!underway && setupFolded) {
+    setupFolded = false; // a brand-new game: setup matters again
+    details.open = true;
+  }
+}
+
 function renderOnline() {
   const stat = $('online-status');
   $('setup-section').hidden = online() || pendingJoinId !== null;
@@ -796,6 +812,7 @@ function renderOnline() {
   if (online()) {
     const me = game.players[session.playerId];
     stat.textContent = `Online as ${me ? me.name : '…'} — share the link so friends can join.`;
+    $('setup-summary').textContent = 'Invite, players & setup';
     $('share-link').value = shareLink();
   } else if (pendingJoinId !== null) {
     stat.textContent = 'You have been invited to an online game. Enter a name below, then join.';
@@ -874,6 +891,7 @@ function refresh() {
   renderActions();
   renderLog();
   renderOnline();
+  foldSetupWhenPlaying();
   applyGlints();
   document.body.classList.toggle('mode-exchange', Boolean(exchanging));
   document.body.classList.toggle('mode-steal', Boolean(placement?.stealing));
@@ -1737,56 +1755,130 @@ $('add-cpu').addEventListener('click', async () => {
 let rackDrag = null;
 let suppressRackTap = false;
 const rackBox = $('rack');
+const RACK_SLIDE_MS = 160;
+const stillMotion = () => reducedMotion?.matches;
+
+/** Where every tile currently sits, so it can be animated from there. */
+const rackRects = () => [...rackBox.children].map((el) => el.getBoundingClientRect());
+
+/**
+ * Slide tiles from where they were to where they are now (FLIP): show the
+ * old position, then let the browser ease each one home.
+ */
+function slideRack(before, { skip = null, sourceOf = (i) => i } = {}) {
+  if (stillMotion()) return;
+  [...rackBox.children].forEach((el, i) => {
+    const from = before[sourceOf(i)];
+    if (!from || el === skip) return;
+    const to = el.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    if (!dx && !dy) return;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    requestAnimationFrame(() => {
+      el.style.transition = `transform ${RACK_SLIDE_MS}ms ease`;
+      el.style.transform = '';
+    });
+  });
+}
+
+/**
+ * Where the carried tile belongs: count how many of the others the pointer
+ * has passed, in reading order. Counting is monotonic in pointer position,
+ * so the gap can't flicker between two slots the way nearest-tile does —
+ * and it ignores the carried tile, whose own position is what moves.
+ */
+function slotUnder(clientX, clientY, dragged) {
+  let idx = 0;
+  for (const el of rackBox.children) {
+    if (el === dragged) continue;
+    const r = el.getBoundingClientRect();
+    const midY = r.top + r.height / 2;
+    const aRowAbove = midY < clientY - r.height / 2;
+    const sameRow = Math.abs(midY - clientY) <= r.height / 2;
+    if (aRowAbove || (sameRow && r.left + r.width / 2 < clientX)) idx++;
+  }
+  return idx;
+}
+
 rackBox.addEventListener('pointerdown', (e) => {
   if (placement || mutating || exchanging) return;
   const tile = e.target.closest('.tile');
   if (!tile) return;
+  const r = tile.getBoundingClientRect();
   rackDrag = {
     tile,
     idx: [...rackBox.children].indexOf(tile),
+    at: [...rackBox.children].indexOf(tile), // where it sits right now
+    grabX: e.clientX - r.left,
+    grabY: e.clientY - r.top,
+    home: r,
+    pid: e.pointerId,
     x0: e.clientX,
     y0: e.clientY,
-    pid: e.pointerId,
     moved: false,
   };
 });
+
 rackBox.addEventListener('pointermove', (e) => {
   if (!rackDrag || e.pointerId !== rackDrag.pid) return;
-  const dx = e.clientX - rackDrag.x0;
-  const dy = e.clientY - rackDrag.y0;
-  if (!rackDrag.moved && Math.hypot(dx, dy) > 10) {
-    rackDrag.moved = true;
-    rackDrag.tile.setPointerCapture(e.pointerId);
-    rackDrag.tile.classList.add('dragging');
+  const d = rackDrag;
+  if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > 10) {
+    d.moved = true;
+    d.tile.setPointerCapture(e.pointerId);
+    d.tile.classList.add('dragging');
   }
-  if (rackDrag.moved) rackDrag.tile.style.transform = `translate(${dx}px, ${dy}px)`;
+  if (!d.moved) return;
+
+  // Open a gap where it would land, so the tray makes room as you go.
+  const slot = slotUnder(e.clientX, e.clientY, d.tile);
+  if (slot !== d.at) {
+    const before = rackRects();
+    const others = [...rackBox.children].filter((el) => el !== d.tile);
+    rackBox.insertBefore(d.tile, others[slot] ?? null);
+    slideRack(before, { skip: d.tile, sourceOf: (i) => i });
+    d.at = [...rackBox.children].indexOf(d.tile);
+    // Its home moved, so re-anchor the tile under the finger.
+    const t = d.tile.style.transform;
+    d.tile.style.transform = '';
+    d.home = d.tile.getBoundingClientRect();
+    d.tile.style.transform = t;
+  }
+  d.tile.style.transform =
+    `translate(${e.clientX - d.home.left - d.grabX}px, ${e.clientY - d.home.top - d.grabY}px)`;
 });
+
 function endRackDrag(e) {
   if (!rackDrag || e.pointerId !== rackDrag.pid) return;
   const d = rackDrag;
   rackDrag = null;
   d.tile.classList.remove('dragging');
-  d.tile.style.transform = '';
-  if (!d.moved) return; // a plain tap: let the click handler spell it
+  if (!d.moved) {
+    d.tile.style.transform = '';
+    return; // a plain tap: let the click handler spell it
+  }
   suppressRackTap = true;
   setTimeout(() => (suppressRackTap = false), 0);
-  const p = game.players[currentPlayer];
-  if (!p) return;
-  let best = d.idx;
-  let bestDist = Infinity;
-  [...rackBox.children].forEach((k, i) => {
-    const r = k.getBoundingClientRect();
-    const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  });
-  if (best !== d.idx && best < p.rack.length && d.idx < p.rack.length) {
-    const [moved] = p.rack.splice(d.idx, 1);
-    p.rack.splice(best, 0, moved);
+
+  // Let go and it settles into the gap rather than snapping.
+  if (stillMotion()) {
+    d.tile.style.transform = '';
+  } else {
+    d.tile.style.transition = `transform ${RACK_SLIDE_MS}ms ease`;
+    d.tile.style.transform = '';
   }
-  renderRack();
+
+  const p = game.players[currentPlayer];
+  if (p && d.at !== d.idx && d.at < p.rack.length && d.idx < p.rack.length) {
+    const [moved] = p.rack.splice(d.idx, 1);
+    p.rack.splice(d.at, 0, moved);
+  }
+  // Re-render once it has landed, so handlers pick up the new indices.
+  setTimeout(() => {
+    d.tile.style.transition = '';
+    renderRack();
+  }, stillMotion() ? 0 : RACK_SLIDE_MS);
 }
 rackBox.addEventListener('pointerup', endRackDrag);
 rackBox.addEventListener('pointercancel', endRackDrag);
@@ -1795,11 +1887,16 @@ $('shuffle').addEventListener('click', () => {
   markUsed('shuffle');
   const p = game.players[currentPlayer];
   if (!p) return;
+  const before = rackRects();
+  // Shuffle slots alongside letters, so each tile knows where it came from.
+  const from = p.rack.map((_, i) => i);
   for (let i = p.rack.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [p.rack[i], p.rack[j]] = [p.rack[j], p.rack[i]];
+    [from[i], from[j]] = [from[j], from[i]];
   }
   renderRack();
+  slideRack(before, { sourceOf: (i) => from[i] });
 });
 
 $('end-day').addEventListener('click', () => {
@@ -1824,9 +1921,10 @@ if (savedName) {
 
 resize();
 refresh();
-if (!online() && !pendingJoinId) {
-  status(`dictionary loaded (${dictionary.size.toLocaleString()} words). Add players, or create an online game.`);
-}
+// Whatever state we opened in, the loading notice must not outlive the load.
+if (pendingJoinId) status('you were invited to this game — enter your name, then join');
+else if (online()) status('welcome back');
+else status('add players, or create an online game');
 
 // Debug/console hooks (handy for poking at the game from devtools).
 window.wordser = {

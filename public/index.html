@@ -23,32 +23,36 @@
       <p class="tagline">n-player scrabble on a looping world</p>
     </header>
 
-    <section id="online-section">
-      <h2>Online</h2>
-      <div id="online-status" class="muted">Hot-seat mode: everyone shares this screen.</div>
-      <input id="online-name" placeholder="your name" maxlength="20" autocomplete="off" style="width:100%;margin-top:6px" />
-      <div id="online-controls">
-        <button id="create-online">Create online game</button>
-      </div>
-      <div id="join-controls" hidden>
-        <button id="join-online">Join this game</button>
-      </div>
-      <div id="share" hidden>
-        <input id="share-link" readonly />
-        <button id="copy-link">Copy</button>
-      </div>
-    </section>
+    <details id="setup-details" open>
+      <summary id="setup-summary">Players &amp; setup</summary>
+      <section id="online-section">
+        <h2>Online</h2>
+        <div id="online-status" class="muted">Hot-seat mode: everyone shares this screen.</div>
+        <input id="online-name" placeholder="your name" maxlength="20" autocomplete="off" style="width:100%;margin-top:6px" />
+        <div id="online-controls">
+          <button id="create-online">Create online game</button>
+        </div>
+        <div id="join-controls" hidden>
+          <button id="join-online">Join this game</button>
+        </div>
+        <div id="share" hidden>
+          <input id="share-link" readonly />
+          <button id="copy-link">Copy</button>
+        </div>
+      </section>
 
-    <section id="setup-section">
-      <form id="add-player-form">
-        <input id="player-name" placeholder="player name" maxlength="20" autocomplete="off" />
-        <button type="submit">Add player</button>
-      </form>
-    </section>
+      <section id="setup-section">
+        <form id="add-player-form">
+          <input id="player-name" placeholder="player name" maxlength="20" autocomplete="off" />
+          <button type="submit">Add player</button>
+        </form>
+      </section>
 
-    <section id="cpu-section">
-      <button id="add-cpu" style="width:100%">Add CPU player 🤖</button>
-    </section>
+      <section id="cpu-section">
+        <button id="add-cpu" style="width:100%">Add CPU player 🤖</button>
+        <button id="end-day">End the day early ★</button>
+      </section>
+    </details>
 
     <section id="rack-section">
       <h2>Rack <span id="rack-hint" class="muted"></span> <button id="shuffle" class="mini" title="shuffle rack" hidden>⇄ shuffle</button></h2>
@@ -60,7 +64,6 @@
       <div id="turn-banner" hidden></div>
       <div id="day-vote" hidden></div>
       <div id="cell-actions" class="muted">Tap an empty cell to start a word.</div>
-      <button id="end-day">End the day ★</button>
     </section>
 
     <section id="players-section">
@@ -80,7 +83,8 @@
         <li><b>The direction is guessed</b> from the letters around the cell you tapped: a gap between two tiles runs along them, a tile above or below starts a downward hook, and a corner heads for the open side. Change it any time with <b>→ dir</b> or Space — whatever you choose is what the next tap assumes.</li>
         <li>The first word of a game must cover the <b>★ start cell</b>; after that every word must touch what's already down.</li>
         <li><b>Whose turn it is</b> is written at the top of Actions. <b>Nobody plays twice in a row</b> — after your move you wait for somebody else, even if you're alone at the table, where the way on is <b>Add CPU player 🤖</b> or a friend joining. Picking a cherry's letter and voting on the end of the day aren't turns.</li>
-        <li><b>Arrow keys</b> move a board cursor (the view follows): type to start a word there, or press <b>Enter</b> on a tile to steal/mutate it. Arrows also slide a word you're spelling. Drag rack tiles to reorder them, or <b>⇄ shuffle</b>.</li>
+        <li><b>Arrow keys</b> move a board cursor (the view follows): type to start a word there, or press <b>Enter</b> on a tile to steal/mutate it. Arrows also slide a word you're spelling.</li>
+        <li><b>Drag a rack tile</b> to reorder your letters — the others slide aside to make room, and it settles into the gap when you let go. <b>⇄ shuffle</b> rearranges them all at once.</li>
         <li><b>Tap a placed tile</b> for the things you can do to it: <b>steal</b> its word — spell your replacement right over it, its letters are free, arrows slide your word along the line, and leftovers join your rack (12 max, the rest drop back into the bag) — or <b>mutate</b> one letter, which shows you the score before you commit. <b>✕ Never mind</b> backs out.</li>
         <li>Spelling across a <i>wildcard</i> with a different letter redefines it — every word it belongs to must stay real.</li>
         <li><b>⇄ Exchange</b> swaps rack letters for fresh ones instead of playing, and <b>⏭ Pass</b> gives up the turn. While you're exchanging or stealing, the rack is outlined so you know which mode you're in. The day has one 100-tile bag; once it's dry you can <b>🌙 propose ending the day</b> — others get 2 minutes to agree (unanimous = instant new day) or cancel by playing on. All passing in a row ends the day too.</li>
@@ -90,6 +94,7 @@
         <li>Scores reset daily: fresh bag, fresh racks, the ★ moves, and a new crop of fruit is laid out. The day's winner earns a permanent ★. Two players can't share a name.</li>
         <li>The player who started the game is the <b>admin 👑</b>. Next to any other player they get <b>✕ remove</b> for that seat (its letters go back in the bag) and <b>👑 admin</b> to hand the rights over — handing over is one-way, so the new admin would have to give them back.</li>
         <li>New here? Controls you haven't used yet catch the light for a moment when they're the thing to press.</li>
+        <li>Once play starts, setup folds itself away under <b>Players &amp; setup</b> — that's where adding players, inviting friends, the share link and <b>End the day early ★</b> live. Open it any time; it stays open until you close it.</li>
       </ul>
     </details>
 

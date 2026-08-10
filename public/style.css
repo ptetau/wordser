@@ -53,6 +53,10 @@ main { display: flex; height: 100%; }
 }
 #panel h1 { margin: 0; font-size: 26px; letter-spacing: 1px; }
 .tagline { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+/* Mid-game the masthead is just letterhead: shrink it and give the room
+   back to the board. */
+body.playing #panel h1 { font-size: 17px; }
+body.playing .tagline { display: none; }
 #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 6px; }
 #panel section, #panel details { margin: 0; }
 
@@ -186,9 +190,25 @@ details li { margin: 6px 0; }
 .preview-ok { color: #9fd48a; font-weight: 600; }
 .preview-bad { color: #ffb4a9; }
 
+/* Setup chrome folds away once play starts: it is not what you came for. */
+#setup-details { border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 10px; }
+#setup-details[open] { padding-bottom: 10px; }
+#setup-summary {
+  cursor: pointer; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--muted); list-style: none; min-height: 24px;
+  display: flex; align-items: center; gap: 6px;
+}
+#setup-summary::-webkit-details-marker { display: none; }
+#setup-summary::before { content: '▸'; font-size: 10px; }
+#setup-details[open] #setup-summary::before { content: '▾'; }
+#setup-details > section { margin-top: 8px; }
+#setup-details #end-day { margin-top: 8px; }
+
 /* Until a game exists, lead with setup and hide empty game sections. */
 .no-game #rack-section, .no-game #actions-section,
 .no-game #players-section, .no-game #log-section { display: none; }
+.no-game #setup-details { border: none; padding: 0; }
+.no-game #setup-summary { display: none; } /* nothing to fold away yet */
 
 #status {
   position: sticky; bottom: 0; margin-top: auto;
@@ -213,6 +233,7 @@ details li { margin: 6px 0; }
   }
   #masthead h1 { font-size: 18px; display: inline; }
   #masthead .tagline { display: inline; margin-left: 8px; font-size: 11px; }
+  #setup-details { order: 3; }
   #rack-section { order: -3; }
   #actions-section { order: -2; }
   #players-section { order: -1; }
@@ -224,7 +245,12 @@ details li { margin: 6px 0; }
   #shuffle { min-height: 44px; }
 }
 
-.tile.dragging { opacity: 0.75; z-index: 6; position: relative; pointer-events: none; }
+.tile.dragging {
+  z-index: 6; position: relative; pointer-events: none;
+  /* Picked up off the tray: lifted, tilted a touch, and casting a shadow. */
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+  filter: brightness(1.06);
+}
 
 #rack .tile { touch-action: none; }
 body.mode-exchange #rack, body.mode-steal #rack {
