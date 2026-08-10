@@ -46,7 +46,9 @@ try them once. **Add CPU player 🤖** works in both modes: local games
 run the CPU in the browser, online games run it server-side — it takes its
 turn in the same request that applies yours, using the same rules-engine
 search. The game wears the Parlour look (mahogany tiles on green baize);
-alternative themes live in `public/themes/` for anyone who wants to swap.
+alternative themes live in `public/themes/` for anyone who wants to swap. The
+bonus fruit are drawn with canvas paths rather than emoji (`public/fruit.js`),
+so they look the same on every device and match the board's own palette.
 
 ```sh
 npm test           # engine + API test suite (node --test, no dependencies)

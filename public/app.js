@@ -5,6 +5,7 @@ import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
 import { defaultDirection } from './placement.js';
+import { drawFruit } from './fruit.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
 import parlour from './themes/parlour.js';
@@ -198,7 +199,6 @@ function render() {
   const h = canvas.clientHeight;
   ctx.clearRect(0, 0, w, h);
   const c = cam.cell;
-  const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';
 
   const drawTile = (x, y, letter, { blank = false, pending = false, redefine = false } = {}) => {
     const t = T().tile;
@@ -303,18 +303,12 @@ function render() {
     } else {
       const fruit = game.fruits.get(Board.key(x, y));
       if (fruit) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, c * 0.4, 0, Math.PI * 2);
-        ctx.fillStyle = T().fruitRing;
-        ctx.fill();
-        // Opaque again before the glyph: a colour emoji is painted through
-        // the fill's alpha, and the ring's 45% left the fruit a ghost.
-        ctx.fillStyle = '#fff';
-        // Keep fruit legible even zoomed far out.
-        ctx.font = `${Math.max(16, Math.floor(c * 0.68))}px ${EMOJI_FONT}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(FRUIT_EMOJI[fruit] ?? '🍇', cx, cy + c * 0.08);
+        // Fruit yield while you are spelling: your pending letters and the
+        // cursor own the stage until you commit.
+        drawFruit(ctx, fruit, cx, cy, c * 0.32, {
+          spawn: spawnPhase(Board.key(x, y)),
+          alpha: placement ? 0.62 : 1,
+        });
       } else if (isStart) {
         ctx.fillStyle = T().star;
         ctx.font = `${Math.floor(c * 0.55)}px system-ui`;
@@ -894,6 +888,7 @@ function refresh() {
   renderActions();
   renderLog();
   renderOnline();
+  noteFruit();
   foldSetupWhenPlaying();
   applyGlints();
   document.body.classList.toggle('mode-exchange', Boolean(exchanging));
@@ -1428,6 +1423,49 @@ canvas.addEventListener(
 const ARROWS = {
   arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1],
 };
+
+// ------------------------------------------------------------ fruit arrival
+// A fruit appearing is a moment worth pointing at, so each one gets a brief
+// flourish. The loop runs only while something is arriving — the board is
+// otherwise redrawn on interaction alone, and a permanent frame loop is a
+// poor trade for a turn-based game.
+const SPAWN_MS = 700;
+const spawnedAt = new Map(); // fruit key -> when we first saw it
+let spawnLoop = null;
+
+/** How far through its arrival a fruit is, or null once it has settled. */
+function spawnPhase(key) {
+  const at = spawnedAt.get(key);
+  if (at === undefined) return null;
+  const u = (performance.now() - at) / SPAWN_MS;
+  return u >= 1 ? null : u;
+}
+
+/** Note new fruit since the last look, and start the flourish if any. */
+function noteFruit() {
+  const now = performance.now();
+  let arriving = false;
+  for (const key of game.fruits.keys()) {
+    if (!spawnedAt.has(key)) {
+      // Don't flourish the whole opening scatter, only later arrivals.
+      spawnedAt.set(key, seenBoardOnce ? now : now - SPAWN_MS);
+    }
+    if (now - spawnedAt.get(key) < SPAWN_MS) arriving = true;
+  }
+  for (const key of [...spawnedAt.keys()]) {
+    if (!game.fruits.has(key)) spawnedAt.delete(key);
+  }
+  seenBoardOnce = true;
+  if (arriving && spawnLoop === null && !reducedMotion?.matches) {
+    const step = () => {
+      render();
+      const busy = [...game.fruits.keys()].some((k) => spawnPhase(k) !== null);
+      spawnLoop = busy ? requestAnimationFrame(step) : null;
+    };
+    spawnLoop = requestAnimationFrame(step);
+  }
+}
+let seenBoardOnce = false;
 
 // ------------------------------------------------------------ camera flight
 const FLY_MS = 500;
