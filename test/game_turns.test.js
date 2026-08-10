@@ -22,6 +22,7 @@ const play = (g, id, x, y, n = 2) => {
   return g.place({ playerId: id, tiles });
 };
 
+
 // ------------------------------------------------------------ turn modes
 
 test('new games take strict turns, in seat order', () => {
@@ -258,4 +259,28 @@ test('an overwrite balances the rack: a tile out, a tile in', () => {
   assert.equal(r.taken, 3);
   assert.equal(ben.rack.length, 12, 'three spent, three picked up');
   assert.equal(g.bag.pool.length, bagBefore, 'nothing needed to go back');
+});
+
+test('a rotation still never lets one player go twice running', () => {
+  // Alone at the table the turn comes straight back to you, which must not
+  // become a loophole in the rule that nobody plays twice in a row.
+  const g = table(['Solo']);
+  assert.equal(g.mode, 'turns');
+  g.players[0].rack = ['a', 't', 'e', 'e', 'e', 'e', 'e'];
+  play(g, 0, g.startCell.x, g.startCell.y, 2);
+  assert.equal(g.turnId, 0, 'the turn is theirs again');
+  assert.equal(g.isTheirTurn(0), false, '...but they have just played');
+  assert.throws(() => play(g, 0, g.startCell.x, g.startCell.y + 1, 2), /add a friend or a CPU/);
+});
+
+test('a newcomer breaks the deadlock when the turn has nowhere to go', () => {
+  const g = table(['Solo']);
+  g.players[0].rack = ['a', 't', 'e', 'e', 'e', 'e', 'e'];
+  play(g, 0, g.startCell.x, g.startCell.y, 2);
+  assert.equal(g.isTheirTurn(0), false);
+  // The turn was pointing at the only player, who had just gone. Seating a
+  // second player must hand it over rather than leaving nobody able to act.
+  const cpu = g.addCpu();
+  assert.equal(g.turnId, cpu.id);
+  assert.equal(g.isTheirTurn(cpu.id), true);
 });

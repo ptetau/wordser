@@ -177,6 +177,17 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 @media (max-width: 340px) { .place-controls .lbl { display: none; } }
 .place-controls button.primary { background: #2f5e39; border-color: #3f7a4b; }
 .place-controls button.primary:hover { background: #387244; }
+#account-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+#account-form .row { display: flex; gap: 6px; }
+#account-form .row button { flex: 1; }
+#account-form input { width: 100%; }
+#my-games { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+#my-games button {
+  width: 100%; text-align: left; font-size: 13px; padding: 8px 10px;
+}
+#my-games button.your-turn { border-color: var(--accent); }
+#my-games .when { color: var(--muted); font-size: 11px; }
+
 #table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
 #table-rules label {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -226,7 +237,18 @@ details li { margin: 6px 0; }
 #setup-summary::before { content: '▸'; font-size: 10px; }
 #setup-details[open] #setup-summary::before { content: '▾'; }
 #setup-details > section { margin-top: 8px; }
-#setup-details #table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+#setup-details #account-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+#account-form .row { display: flex; gap: 6px; }
+#account-form .row button { flex: 1; }
+#account-form input { width: 100%; }
+#my-games { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+#my-games button {
+  width: 100%; text-align: left; font-size: 13px; padding: 8px 10px;
+}
+#my-games button.your-turn { border-color: var(--accent); }
+#my-games .when { color: var(--muted); font-size: 11px; }
+
+#table-rules { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
 #table-rules label {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   font-size: 13px; color: var(--muted); cursor: pointer;

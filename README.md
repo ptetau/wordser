@@ -1,6 +1,6 @@
 # wordser
 
-N-player scrabble on a looping 512×512 world. Letters can be stolen, words
+N-player scrabble on a looping 480×480 world. Letters can be stolen, words
 can be rewritten under your opponents' feet, bonus fruits dot the plain,
 and every day crowns a winner.
 
@@ -29,11 +29,11 @@ letters around it — a slot between two tiles, a neighbour on one side, or
 the roomier axis at a corner — and Space or the direction button overrides
 it. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
 ✓ play**), and ✓ carries the score, greying out with the reason when the
-word won't do. Whose turn it is is written at the top of Actions. When a word is played and
-it isn't already on screen, the camera glides over to it, so you always see
-what just happened — touch the board and the view is yours again. Drag to
+word won't do. Whose turn it is is written at the top of Actions. The view stays where you
+put it; switch on *Glide the view to each new word* under the table's rules
+if you would rather it follow the play. Drag to
 pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
-**⌖** returns you to the last word played — handy on a 512-cell world.
+**⌖** returns you to the last word played — handy on a 480-cell world.
 Once the first word is down, the setup controls (adding players, the share
 link, ending the day) fold away under *Players & setup* so the panel is
 mostly the game; open the fold any time and it stays open. The arrow keys drive a board cursor (the viewport follows):
@@ -56,27 +56,33 @@ npm test           # engine + API test suite (node --test, no dependencies)
 
 ## The rules
 
-- **A looping world.** The board is a 512×512 torus: walk off one edge and
+- **A looping world.** The board is a 480×480 torus: walk off one edge and
   you come back on the other, and words may wrap around the seam. The
   opening word on an empty board must cover the ★ start cell (always on a
   double-word star); every later word must connect to what's on the board.
   The ★ moves each day, but the letters stay, so from day two the action
   carries on where the words already are.
-- **Classic premiums, tiled forever.** The premium squares are the actual
-  classic scrabble layout — triple-word corners, double-word diagonal X's,
-  the triple/double-letter diamonds — stretched to double scale and tiled
-  seamlessly around the torus. Each board carries a one-square gutter of
-  plain cells along two sides, making the tile 16 squares (32 cells) so it
-  divides the 512-cell world exactly: 16 boards across, 256 in all, and the
-  pattern meets itself perfectly at the seam. The gutter reads as the margin
-  between boards laid side by side. A premium counts only when the letter on
-  it changed that move.
-- **Play after a friend.** You may only move after somebody else has moved.
-  Nobody takes two turns in a row — not across a day boundary, and not even
-  when you are the only player at the table, in which case the game tells
-  you to invite a friend or add a CPU player 🤖. Eating a fruit's choice of
-  letter, proposing the end of the day and voting on it are not turns, so
-  they never unblock you.
+- **Classic premiums, tiled forever.** The premium squares are the real
+  scrabble board — triple-word corners, the double-word diagonal X, the
+  triple/double-letter diamonds — tiled edge to edge at its own scale. The
+  15-square board divides the 480-cell world exactly 32 times, so the
+  pattern meets itself perfectly at the seam, and neighbouring boards share
+  their triple-word rims the way two boards laid side by side would. A
+  premium counts only when the letter on it changed that move.
+- **Turns, or a free-for-all.** New games rotate in seat order: the game
+  says whose go it is and refuses anybody else. The admin can switch the
+  table to **free-for-all**, where anyone may play so long as they don't go
+  twice running. Either way nobody takes two turns in a row — not across a
+  day boundary, and not when you're the only player, where the way on is to
+  invite a friend or add a CPU.
+- **Skipping idlers.** The admin can skip whoever is holding things up, and
+  a seat that sits on its turn for **eight hours** is passed by
+  automatically. The clock runs from when the turn arrived, not from your
+  last move, so waiting all day for your go never costs you it. CPU seats
+  are never skipped.
+- **One payday per word.** A word pays a given player once a day. Flipping
+  a letter back and forth to re-bank the same word scores nothing, and the
+  log says so. The ledger is per player and clears with the new day.
 - **One name each.** Two players in the same game can't share a name —
   case and stray spacing are ignored when comparing, so `Ada` and `  aDA `
   collide. Up to 16 players may sit at one online game.
@@ -112,6 +118,10 @@ npm test           # engine + API test suite (node --test, no dependencies)
   replaces; every resulting word must be real). Old letters you reuse stay on
   the board; the leftovers are stolen into your rack up to a maximum of
   **12 rack tiles — anything over that drops back into the bag**.
+- **Overwriting.** Lay a word straight across letters already down. Every
+  word it touches must still be real, it has to say something new, and the
+  letters you cover are prised off the board and are yours. Letters that
+  already fit are restated for free — COT over CAT spends only the O.
 - **Mutating.** Swap a single letter of a board word for one of yours if
   every word through that cell stays real. The ousted letter takes the place
   of the tile you spent, so it always joins your rack.
@@ -138,6 +148,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
   whose seat closes up behind them, and can **hand the admin rights** to
   another human. Handing over is one-way: only the new admin can give them
   back.
+- **A new mark when the bag runs dry.** The moment the day's last letter is
+  drawn, the ★ jumps at least twenty cells clear of where it was.
+- **Accounts.** Sign in with a name and a passphrase and your games follow
+  you to any device: the seats you hold are tied to the account, so opening
+  a game link on your phone puts you back in your own chair. The passphrase
+  is stretched with scrypt over a per-account salt and compared in constant
+  time; it is never stored. Playing without an account works exactly as
+  before.
 - **Daily stars.** Scores reset every day (UTC), everyone is dealt a fresh
   rack from a new bag, the ★ start cell wanders to a different double-word
   star, and a fresh crop of fruit is laid out within reach. The player(s)

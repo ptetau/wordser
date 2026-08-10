@@ -8,7 +8,7 @@ import { feasibleDirection } from './placement.js';
 import { drawFruit } from './fruit.js';
 import { FLOURISH_MS, flourishFor, flourishAt } from './flourish.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
-import { Online, NetError } from './net.js';
+import { Online, NetError, account } from './net.js';
 import parlour from './themes/parlour.js';
 
 const $ = (id) => document.getElementById(id);
@@ -879,7 +879,14 @@ function renderTurn() {
   }
   if (blocked && game.players.length === 1) {
     el.className = 'waiting';
-    el.innerHTML = 'You have played — add a friend or a CPU 🤖 to carry on';
+    el.innerHTML = 'You have played — add a friend to carry on, or ';
+    const add = document.createElement('button');
+    add.className = 'mini';
+    add.id = 'banner-cpu';
+    add.textContent = 'add a CPU 🤖';
+    add.onclick = () => $('add-cpu').click();
+    el.appendChild(add);
+    glint(add, 'cpu');
     return;
   }
   el.className = blocked ? 'waiting' : '';
@@ -1264,6 +1271,7 @@ async function goOnline(result) {
   refresh();
   showPanelTop();
   status('online game ready — share the link!', 'good');
+  renderAccount();
 }
 
 $('create-online').addEventListener('click', async () => {
@@ -1326,6 +1334,14 @@ if (pendingJoinId) {
     session = saved;
     pendingJoinId = null;
     sync(true);
+  } else if (account.token()) {
+    // Signed in and already at this table? Sit back down rather than
+    // asking a returning player to join their own game.
+    try {
+      await goOnline(await Online.adopt(pendingJoinId));
+    } catch {
+      // Not a game of yours: the join form is the right answer after all.
+    }
   }
 }
 
@@ -2068,6 +2084,63 @@ function endRackDrag(e) {
 rackBox.addEventListener('pointerup', endRackDrag);
 rackBox.addEventListener('pointercancel', endRackDrag);
 
+// ------------------------------------------------------------------ account
+async function renderAccount() {
+  const who = account.get();
+  $('account-form').hidden = Boolean(who);
+  $('account-signed').hidden = !who;
+  $('account-status').textContent = who
+    ? `Signed in as ${who.name} — your games follow you anywhere.`
+    : 'Sign in and your games follow you to any device.';
+  if (!who) return;
+  try {
+    const { games } = await account.myGames();
+    const box = $('my-games');
+    box.innerHTML = '';
+    if (!games.length) {
+      box.innerHTML = '<div class="muted">No games yet — create one below.</div>';
+      return;
+    }
+    for (const g of games) {
+      const b = document.createElement('button');
+      if (g.yourTurn) b.classList.add('your-turn');
+      b.innerHTML = `${g.yourTurn ? '● ' : ''}${esc(g.players.join(', '))}
+        <div class="when">day ${g.day} · ${g.score} points${g.yourTurn ? ' · your turn' : ''}</div>`;
+      b.onclick = () => {
+        location.search = `?g=${encodeURIComponent(g.id)}`;
+      };
+      box.appendChild(b);
+    }
+  } catch {
+    $('my-games').innerHTML = '<div class="muted">Could not reach your games.</div>';
+  }
+}
+
+const withAccount = async (fn, verb) => {
+  const name = $('account-name').value.trim();
+  const pass = $('account-pass').value;
+  if (!name || !pass) {
+    status('a name and a passphrase, please', 'error');
+    return;
+  }
+  try {
+    await fn(name, pass);
+    $('account-pass').value = '';
+    status(`${verb} as ${account.get().name}`, 'good');
+    await renderAccount();
+  } catch (err) {
+    showError(err);
+  }
+};
+
+$('sign-in').addEventListener('click', () => withAccount((n, p) => account.signIn(n, p), 'signed in'));
+$('sign-up').addEventListener('click', () => withAccount((n, p) => account.signUp(n, p), 'account made — signed in'));
+$('sign-out').addEventListener('click', async () => {
+  await account.signOut();
+  status('signed out — this device keeps the games it already joined', '');
+  renderAccount();
+});
+
 $('fly-camera').addEventListener('change', (e) => {
   setFly(e.target.checked);
   status(
@@ -2124,6 +2197,7 @@ if (savedName) {
 resize();
 refresh();
 // Whatever state we opened in, the loading notice must not outlive the load.
+renderAccount();
 if (pendingJoinId) status('you were invited to this game — enter your name, then join');
 else if (online()) status('welcome back');
 else status('add players, or create an online game');

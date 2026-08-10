@@ -11,6 +11,7 @@ import { Game, GameError } from '../public/engine/game.js';
 import { loadBundledDictionary } from '../public/engine/dictionary.js';
 import { buildWordList, takeCpuTurn } from '../public/cpu.js';
 import { RespClient } from './resp.js';
+import { AuthError, signUp, signIn, signOut, whoIs, rememberGame } from './accounts.js';
 
 const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
@@ -92,6 +93,18 @@ return 'OK'`;
       const res = await call(['EVAL', CAS, '1', key, JSON.stringify(value), String(expectedSeq)]);
       return res === 'OK';
     },
+    /** Plain write, for records that aren't games and carry no sequence. */
+    async set(key, value) {
+      await call(['SET', key, JSON.stringify(value)]);
+      return true;
+    },
+    /** Write only if nothing is there — how an account name is claimed. */
+    async setNew(key, value) {
+      return (await call(['SETNX', key, JSON.stringify(value)])) === 1;
+    },
+    async del(key) {
+      await call(['DEL', key]);
+    },
   };
 }
 
@@ -107,6 +120,18 @@ export function memoryStore() {
       if (cur ? cur.seq !== expectedSeq : expectedSeq !== 0) return false;
       m.set(key, JSON.stringify(value));
       return true;
+    },
+    async set(key, value) {
+      m.set(key, JSON.stringify(value));
+      return true;
+    },
+    async setNew(key, value) {
+      if (m.has(key)) return false;
+      m.set(key, JSON.stringify(value));
+      return true;
+    },
+    async del(key) {
+      m.delete(key);
     },
   };
 }
@@ -127,6 +152,7 @@ function view(record, playerId) {
   const game = structuredClone(record.game);
   for (const p of game.players) {
     delete p.token;
+    delete p.account; // whose account a seat belongs to is private
     if (p.id !== playerId) {
       p.rack = p.rack.map(() => '?');
       delete p.pendingChoice;
@@ -139,10 +165,16 @@ function view(record, playerId) {
  * The token is the credential; the id a client sends is only a hint, since
  * removing a player shifts every seat below them along.
  */
-function authPlayer(record, token) {
+function authPlayer(record, token, account = null) {
   const p = token ? record.game.players.find((q) => q.token === token) : null;
-  if (!p) throw Object.assign(new Error('bad player credentials'), { status: 403 });
-  return p;
+  if (p) return p;
+  // Signed in? Then any seat of yours in this game is yours to play, from
+  // whatever device you happen to be holding.
+  if (account) {
+    const mine = record.game.players.find((q) => q.account === account.key);
+    if (mine) return mine;
+  }
+  throw Object.assign(new Error('bad player credentials'), { status: 403 });
 }
 
 /**
@@ -172,16 +204,54 @@ export async function handleAction(store, body) {
     const action = body?.action;
     if (action === 'create') {
       const name = cleanName(body.name);
+      const account = await whoIs(store, body.accountToken);
       const game = new Game({ dictionary: await dictionary() });
       const player = game.addPlayer(name);
       const token = crypto.randomUUID();
       const data = game.toJSON();
       data.players[player.id].token = token;
+      if (account) data.players[player.id].account = account.key;
       const record = { id: newGameId(), seq: 1, game: data };
       if (!(await store.put(KEY(record.id), record, 0))) {
         return { status: 409, data: { error: 'try again' } };
       }
+      if (account) await rememberGame(store, account.key, record.id);
       return { status: 200, data: { ...view(record, player.id), token } };
+    }
+
+    if (action === 'signup' || action === 'signin') {
+      const fn = action === 'signup' ? signUp : signIn;
+      const { name, token } = await fn(store, { name: body.name, passphrase: body.passphrase });
+      const me = await whoIs(store, token);
+      return { status: 200, data: { account: name, accountToken: token, games: me?.games ?? [] } };
+    }
+
+    if (action === 'signout') {
+      await signOut(store, body.accountToken);
+      return { status: 200, data: { signedOut: true } };
+    }
+
+    if (action === 'mygames') {
+      const me = await whoIs(store, body.accountToken);
+      if (!me) return { status: 403, data: { error: 'sign in first' } };
+      // Enough about each game to choose between them, and nothing more.
+      const games = [];
+      for (const id of me.games) {
+        const rec = await store.get(KEY(id));
+        if (!rec) continue;
+        const seat = rec.game.players.find((p) => p.account === me.key);
+        games.push({
+          id,
+          day: rec.game.day,
+          players: rec.game.players.map((p) => p.name),
+          you: seat?.name ?? null,
+          score: seat?.score ?? 0,
+          yourTurn: rec.game.mode === 'turns'
+            ? rec.game.turnId === seat?.id
+            : rec.game.lastPlayerId !== seat?.id,
+        });
+      }
+      return { status: 200, data: { account: me.name, games } };
     }
 
     if (action === 'diag') {
@@ -212,19 +282,28 @@ export async function handleAction(store, body) {
         return { status: 400, data: { error: 'this game is full' } };
       }
       const name = cleanName(body.name);
+      const account = await whoIs(store, body.accountToken);
+      // Already at this table on another device? Take that seat back.
+      const seated = account && record.game.players.find((p) => p.account === account.key);
+      if (seated) {
+        return { status: 200, data: { ...view(record, seated.id), token: seated.token } };
+      }
       const game = await loadGame(record);
       const player = game.addPlayer(name);
       const token = crypto.randomUUID();
       const data = carryTokens(game.toJSON(), record);
       data.players[player.id].token = token;
+      if (account) data.players[player.id].account = account.key;
       const next = { id: record.id, seq: record.seq + 1, game: data };
       if (!(await store.put(KEY(record.id), next, record.seq))) {
         return { status: 409, data: { error: 'the game changed underneath you — try again' } };
       }
+      if (account) await rememberGame(store, account.key, record.id);
       return { status: 200, data: { ...view(next, player.id), token } };
     }
 
-    const playerId = authPlayer(record, body?.token).id;
+    const account = await whoIs(store, body?.accountToken);
+    const playerId = authPlayer(record, body?.token, account).id;
 
     if (action === 'addcpu') {
       if (record.game.players.length >= MAX_PLAYERS) {
@@ -278,6 +357,7 @@ export async function handleAction(store, body) {
 
     return { status: 400, data: { error: `unknown action: ${action}` } };
   } catch (err) {
+    if (err instanceof AuthError) return { status: err.status, data: { error: err.message } };
     if (err instanceof GameError) return { status: 400, data: { error: err.message } };
     if (err.status) return { status: err.status, data: { error: err.message } };
     throw err;

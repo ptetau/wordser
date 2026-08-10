@@ -135,6 +135,7 @@ export class Game {
       this.turnId = player.id;
       this.turnStartedAt = this.now();
     }
+    this.#unstickTurn(); // a newcomer breaks a one-player deadlock
     this.log.push(`${clean} joined the game 👋`);
     return player;
   }
@@ -241,10 +242,12 @@ export class Game {
    * who has to find someone (or something) to play against.
    */
   #assertCanPlay(player) {
-    if (this.mode === 'turns') {
-      if (this.turnId === null || this.turnId === player.id) return;
+    if (this.mode === 'turns' && this.turnId !== null && this.turnId !== player.id) {
       fail(`it is ${this.player(this.turnId).name}'s turn`);
     }
+    // Both modes keep the same promise: never two turns in a row. In a
+    // rotation that only ever bites the player sitting alone, whose turn
+    // comes straight back round to them.
     if (this.lastPlayerId !== player.id) return;
     fail(
       this.players.length > 1
@@ -256,8 +259,9 @@ export class Game {
   /** True if this player is the one the game is waiting on. */
   isTheirTurn(playerId) {
     if (!this.players.length) return false;
+    if (this.lastPlayerId === playerId) return false; // never twice running
     if (this.mode === 'turns') return this.turnId === null || this.turnId === playerId;
-    return this.lastPlayerId !== playerId || this.players.length === 0;
+    return true;
   }
 
   /** Hand the turn to the next seat along (a no-op in free-for-all). */
@@ -266,6 +270,18 @@ export class Game {
     const from = fromId ?? this.turnId ?? 0;
     this.turnId = (from + 1) % this.players.length;
     this.turnStartedAt = this.now();
+  }
+
+  /**
+   * The rotation must never point at somebody who cannot legally move —
+   * which happens the moment a second player joins a game where the turn
+   * had cycled straight back to the one player who had just played.
+   */
+  #unstickTurn() {
+    if (this.mode !== 'turns' || this.players.length < 2) return false;
+    if (this.turnId === null || this.turnId !== this.lastPlayerId) return false;
+    this.#advanceTurn(this.turnId);
+    return true;
   }
 
   /** Note that a seat has just acted, for the idle clock. */
@@ -409,6 +425,7 @@ export class Game {
    */
   tickClock() {
     let changed = this.rolloverIfNeeded();
+    if (this.#unstickTurn()) changed = true;
     if (this.skipIfIdle()) changed = true;
     if (this.dayEndVote && this.now() >= this.dayEndVote.expiresAt) {
       this.log.push('nobody objected in time — the day ends ⏳');
