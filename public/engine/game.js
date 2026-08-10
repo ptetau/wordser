@@ -2,7 +2,9 @@
 //
 // House rules implemented here:
 //   - A torus board with a recurring criss-cross premium pattern (premium.js).
-//   - Premiums count only for cells whose letter changed this move.
+//   - Premiums pay once, ever: the first letter to land on a premium square
+//     collects it and the square is plain board from then on. Adding to a
+//     word therefore pays face value for the letters already down.
 //   - You can only play after a friend has played: nobody makes two moves in
 //     a row, not even the only player at the table.
 //   - Steal: replace an existing word with a new real word along the same
@@ -118,6 +120,7 @@ export class Game {
     this.mode = 'turns'; // 'turns' = strict rotation, 'free' = free-for-all
     this.turnId = null; // whose turn it is, in 'turns' mode
     this.lastPlayerId = null;
+    this.spent = new Set(); // premium cells already collected, for good
     this.passed = new Set(); // players who passed since the last real move
     this.dayEndVote = null; // { proposer, agreed: [ids], expiresAt } while voting
     this.day = 1;
@@ -500,7 +503,8 @@ export class Game {
     let mult = 1;
     for (const c of cells) {
       let v = c.tile.isBlank ? 0 : LETTER_VALUES[c.tile.letter];
-      if (changed.has(Board.key(c.x, c.y))) {
+      const key = Board.key(c.x, c.y);
+      if (changed.has(key) && !this.spent.has(key)) {
         const p = premiumAt(c.x, c.y);
         if (p === 'DL') v *= 2;
         else if (p === 'TL') v *= 3;
@@ -510,6 +514,20 @@ export class Game {
       sum += v;
     }
     return sum * mult;
+  }
+
+  /**
+   * A premium square is a seam of ore, not a renewable crop: the first move
+   * to write a letter onto it takes the bonus and the square is plain board
+   * from then on. Everything after that — extending the word, writing over
+   * it, stealing it — is paid at face value, which is what stops a corner
+   * triple-word being re-mined every day by rewriting the same cell.
+   */
+  #spendPremiums(changed) {
+    for (const key of changed) {
+      const [x, y] = key.split(',').map(Number);
+      if (premiumAt(x, y)) this.spent.add(key);
+    }
   }
 
   #commit(player, points, message, coveredKeys = []) {
@@ -1017,6 +1035,7 @@ export class Game {
       let points = formed.reduce((acc, w) => acc + this.#payFor(player, w, changed), 0);
       const repeats = formed.filter((w) => this.#alreadyScored(player, w.word)).map((w) => w.word);
       this.#noteScored(player, formed.map((w) => w.word));
+      this.#spendPremiums(changed);
       if (tiles.length >= RACK_TARGET) points += BINGO_BONUS;
 
       // Letters written over are prised off the board and pocketed, up to
@@ -1224,6 +1243,7 @@ export class Game {
       }
     }
     this.#noteScored(player, scoredWords.map((w) => w.word));
+    this.#spendPremiums(changed);
 
     const coveredKeys = [];
     for (let j = 0; j < L; j++) {
@@ -1370,6 +1390,7 @@ export class Game {
       lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
       startCell: { ...this.startCell },
       passed: [...this.passed],
+      spent: [...this.spent],
       dayEndVote: this.dayEndVote ? { ...this.dayEndVote, agreed: [...this.dayEndVote.agreed] } : null,
       bag: [...this.bag.pool].sort().join(''),
       log: [...this.log],
@@ -1401,6 +1422,7 @@ export class Game {
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
     if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
     game.passed = new Set(data.passed ?? []);
+    game.spent = new Set(data.spent ?? []);
     game.dayEndVote = data.dayEndVote ? { ...data.dayEndVote, agreed: [...data.dayEndVote.agreed] } : null;
     game.log = [...(data.log ?? [])];
     return game;

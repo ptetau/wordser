@@ -15,8 +15,9 @@ test('same-length steal: reuse nothing, pocket the old letters', () => {
   const g = withCat(['dog'], ['d', 'o', 'g', 'e', 'e', 'e', 'e']);
   const r = g.stealReplace({ playerId: 1, x: 0, y: 0, dir: 'h', word: 'dog' });
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'dog');
-  // d on the DW start star at (0,0): (2+1+2) * 2
-  assert.equal(r.points, 10);
+  // 2+1+2 at face value: CAT already collected the DW on the start star, and
+  // a premium only ever pays once.
+  assert.equal(r.points, 5);
   assert.equal(r.stolen, 3);
   for (const l of ['c', 'a', 't']) assert.ok(g.players[1].rack.includes(l));
 });

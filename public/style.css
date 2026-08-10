@@ -146,6 +146,12 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
   border-radius: 6px;
   border: 1px dashed color-mix(in srgb, var(--input-border) 70%, transparent);
   background: color-mix(in srgb, var(--input-bg) 40%, transparent);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+/* Mid-drag every empty slot is a place the tile can go, so say so. */
+#rack.arranging .slot {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .tile {
   width: 100%; height: 46px; border-radius: 6px;

@@ -69,6 +69,7 @@ test('a clone owns its state: dry-running a move leaves the original alone', () 
   assert.ok(shown.points > 0);
 
   assert.deepEqual(g.players[0].scored, [], 'the dry run banked the word for real');
+  assert.equal(g.spent.size, 0, 'the dry run burnt a premium for real');
   assert.equal(g.players[0].score, 0);
   assert.ok(!g.board.get(0, 0), 'the dry run wrote to the real board');
 

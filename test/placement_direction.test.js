@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Board, WORLD } from '../public/engine/board.js';
-import { defaultDirection, feasibleDirection } from '../public/placement.js';
+import { defaultDirection, feasibleDirection, nearestWordDirection } from '../public/placement.js';
 
 /** A board with the given letters laid down: [x, y, letter]. */
 const boardWith = (...tiles) => {
@@ -59,11 +59,43 @@ test('a dead-heat corner falls back to the last direction chosen', () => {
   assert.equal(defaultDirection(b, 3, 0, { lastDir: 'h' }), 'h');
 });
 
-test('an isolated cell refuses to be clever and repeats the last choice', () => {
+// ------------------------------------------------- pointing at the action
+
+test('a cell with nothing touching it points at the nearest word', () => {
+  // CAT lies along row 0. Tapping well below it, the nearest letters are up
+  // the column, so the arrow runs down the column and can be slid into them.
   const b = boardWith(...word('cat', 0, 0));
-  assert.equal(defaultDirection(b, 10, 10, { lastDir: 'v' }), 'v');
-  assert.equal(defaultDirection(b, 10, 10, { lastDir: 'h' }), 'h');
-  assert.equal(defaultDirection(b, 10, 10), 'h'); // no habit yet
+  for (const lastDir of ['h', 'v']) {
+    assert.equal(defaultDirection(b, 1, 6, { lastDir }), 'v', 'habit must not win');
+  }
+  // Off to the right of the same word: it is along the row, so run across.
+  assert.equal(defaultDirection(b, 8, 0, { lastDir: 'v' }), 'h');
+});
+
+test('the nearer word wins over the further one', () => {
+  const b = boardWith(...word('cat', 0, 0), ...word('dog', 20, 12, 'v'));
+  // (20,6) is six above DOG's column and twenty from CAT: the column wins.
+  assert.equal(nearestWordDirection(b, 20, 6), 'v');
+  // Halfway between, CAT's row is what is close.
+  assert.equal(nearestWordDirection(b, 6, 0), 'h');
+});
+
+test('nothing within reach is where habit comes back', () => {
+  const b = boardWith(...word('cat', 0, 0));
+  assert.equal(nearestWordDirection(b, 200, 200), null);
+  assert.equal(defaultDirection(b, 200, 200, { lastDir: 'v' }), 'v');
+  assert.equal(defaultDirection(b, 200, 200, { lastDir: 'h' }), 'h');
+  assert.equal(defaultDirection(b, 200, 200), 'h'); // no habit yet
+});
+
+test('an exactly diagonal word says nothing about an axis', () => {
+  const b = boardWith([3, 3, 'a']); // dead diagonal from the origin
+  assert.equal(nearestWordDirection(b, 0, 0), null);
+});
+
+test('the search wraps round the world like everything else', () => {
+  const b = boardWith([WORLD - 3, 0, 'a']);
+  assert.equal(nearestWordDirection(b, 0, 0), 'h');
 });
 
 test('neighbours are found across the seam', () => {

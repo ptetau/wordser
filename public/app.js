@@ -198,6 +198,34 @@ function* visibleHexes() {
   }
 }
 
+/**
+ * The halo sprite: a ring of light with a hole in the middle, so it lands on
+ * the board around a tile and never on the letter. Cached per colour — a
+ * radial gradient per cell per frame is the sort of thing that shows up on a
+ * phone.
+ */
+const halos = new Map();
+function wordHalo(colour) {
+  const found = halos.get(colour);
+  if (found) return found;
+  const S = 128;
+  const h = S / 2;
+  const sprite = document.createElement('canvas');
+  sprite.width = sprite.height = S;
+  const g = sprite.getContext('2d');
+  const tint = (a) => colour.replace(/rgba?\(([^)]+?)(,\s*[\d.]+)?\)/, `rgba($1,${a})`);
+  const ramp = g.createRadialGradient(h, h, 0, h, h, h);
+  ramp.addColorStop(0.0, tint(0));
+  ramp.addColorStop(0.4, tint(0)); // the tile's own ground stays clear
+  ramp.addColorStop(0.52, tint(0.5));
+  ramp.addColorStop(0.7, tint(0.22));
+  ramp.addColorStop(1.0, tint(0));
+  g.fillStyle = ramp;
+  g.fillRect(0, 0, S, S);
+  halos.set(colour, sprite);
+  return sprite;
+}
+
 function render() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
@@ -281,6 +309,7 @@ function render() {
   };
 
   const lm = lastWordKeys();
+  const lit = []; // centres of the last word's cells, haloed after the loop
 
   for (const [x, y] of visibleHexes()) {
     const [cx, cy] = hexCenter(x, y);
@@ -343,8 +372,7 @@ function render() {
 
     // Highlight the most recent move so opponent/CPU plays are easy to spot.
     if (lm?.has(Board.key(x, y))) {
-      // The last word glows rather than being outlined: it stays legible
-      // under the letters instead of boxing them in.
+      lit.push([cx, cy]);
       hexPath(cx, cy, c * 0.47);
       ctx.strokeStyle = T().lastMove;
       ctx.lineWidth = Math.max(2, c * 0.06);
@@ -354,6 +382,20 @@ function render() {
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+  }
+
+  // The last word always wears a halo: light spilling onto the board around
+  // it, never over the letters. One pass at the end so the glows of adjacent
+  // cells add into a single aura along the whole word rather than being
+  // painted over by the next cell's background.
+  if (lit.length) {
+    const sprite = wordHalo(T().lastMove);
+    const R = c * 1.15;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.55;
+    for (const [cx, cy] of lit) ctx.drawImage(sprite, cx - R, cy - R, R * 2, R * 2);
+    ctx.restore();
   }
 
   if (placement) {
@@ -491,28 +533,89 @@ function renderRack() {
   } else if (placement) {
     pendingUse = placement.entries.filter((e) => !e.existing).map((e) => (e.fromBlank ? BLANK : e.letter));
   }
-  const rack = [...p.rack];
-  for (const u of pendingUse) {
-    const i = rack.indexOf(u);
-    if (i !== -1) rack.splice(i, 1);
-  }
-  rack.forEach((l, i) => {
+  // The tray is twelve fixed slots, not a packed row: every letter has an
+  // address the player chose, and the gaps between them are the point —
+  // laying C _ T out with a hole in it is how you see the play.
+  const layout = layoutFor(p);
+  // Which slot holds which rack index, so taps still name a real tile.
+  const claimed = new Set();
+  const rackIndexAt = new Map();
+  layout.forEach((l, at) => {
+    if (l === null) return;
+    const i = p.rack.findIndex((r, j) => r === l && !claimed.has(j));
+    if (i !== -1) {
+      claimed.add(i);
+      rackIndexAt.set(at, i);
+    }
+  });
+  // A letter the pending word has spent leaves its slot empty rather than
+  // closing the tray up: you can see where it went.
+  const spending = [...pendingUse];
+  layout.forEach((l, at) => {
+    let show = l;
+    if (show !== null) {
+      const i = spending.indexOf(show);
+      if (i !== -1) {
+        spending.splice(i, 1);
+        show = null;
+      }
+    }
+    if (show === null) {
+      const slot = document.createElement('div');
+      slot.className = 'slot';
+      box.appendChild(slot);
+      return;
+    }
+    const idx = rackIndexAt.get(at);
     const t = document.createElement('button');
     t.type = 'button';
-    t.className = 'tile' + (l === BLANK ? ' blank' : '');
-    if (exchanging?.picks.includes(i)) t.classList.add('selected');
-    t.innerHTML = l === BLANK ? '★<sub>0</sub>' : `${l}<sub>${LETTER_VALUES[l]}</sub>`;
-    t.onclick = () => rackTap(l, i);
+    t.className = 'tile' + (show === BLANK ? ' blank' : '');
+    if (exchanging?.picks.includes(idx)) t.classList.add('selected');
+    t.innerHTML = show === BLANK ? '★<sub>0</sub>' : `${show}<sub>${LETTER_VALUES[show]}</sub>`;
+    t.onclick = () => rackTap(show, idx);
     box.appendChild(t);
   });
-  // Fill the tray out to two full rows, so letters have somewhere to land
-  // and the panel doesn't jump about as the rack shrinks.
-  for (let i = rack.length; i < RACK_MAX; i++) {
-    const slot = document.createElement('div');
-    slot.className = 'slot';
-    box.appendChild(slot);
-  }
   $('shuffle').hidden = !p;
+}
+
+// Where each player has arranged their letters. Kept out of the game itself:
+// the engine's rack is a bag of letters, and how they are laid out in front
+// of you is nobody else's business — least of all the server's.
+const rackLayouts = new Map();
+
+/**
+ * This player's tray, reconciled against the rack they actually hold.
+ * Letters that have left keep their slot open; letters that have arrived
+ * take the first free one. Everything else stays exactly where it was put.
+ */
+function layoutFor(p) {
+  const pool = [...p.rack];
+  const prev = rackLayouts.get(p.id) ?? [];
+  const next = [];
+  for (let i = 0; i < RACK_MAX; i++) {
+    const l = prev[i] ?? null;
+    const at = l === null ? -1 : pool.indexOf(l);
+    if (at === -1) {
+      next.push(null);
+      continue;
+    }
+    pool.splice(at, 1);
+    next.push(l);
+  }
+  for (let i = 0; i < RACK_MAX && pool.length; i++) {
+    if (next[i] === null) next[i] = pool.shift();
+  }
+  rackLayouts.set(p.id, next);
+  return next;
+}
+
+/** Move a tile to another slot, sliding whatever is in the way along. */
+function moveInLayout(p, from, to) {
+  const layout = rackLayouts.get(p.id);
+  if (!layout || from === to) return;
+  const [tile] = layout.splice(from, 1);
+  layout.splice(to, 0, tile);
+  layout.length = RACK_MAX;
 }
 
 function rackTap(letter, index) {
@@ -2032,7 +2135,10 @@ function slotUnder(clientX, clientY, dragged) {
 }
 
 rackBox.addEventListener('pointerdown', (e) => {
-  if (placement || mutating || exchanging) return;
+  // Arranging your letters mid-word is the whole point of the tray, so a
+  // placement is no reason to lock it. Exchanging and mutating are: there a
+  // tap means "pick this one", and a half-drag would pick the wrong tile.
+  if (mutating || exchanging) return;
   const tile = e.target.closest('.tile');
   if (!tile) return;
   const r = tile.getBoundingClientRect();
@@ -2057,6 +2163,7 @@ rackBox.addEventListener('pointermove', (e) => {
     d.moved = true;
     d.tile.setPointerCapture(e.pointerId);
     d.tile.classList.add('dragging');
+    rackBox.classList.add('arranging'); // light the empty slots as targets
   }
   if (!d.moved) return;
 
@@ -2083,6 +2190,7 @@ function endRackDrag(e) {
   const d = rackDrag;
   rackDrag = null;
   d.tile.classList.remove('dragging');
+  rackBox.classList.remove('arranging');
   if (!d.moved) {
     d.tile.style.transform = '';
     return; // a plain tap: let the click handler spell it
@@ -2099,10 +2207,7 @@ function endRackDrag(e) {
   }
 
   const p = game.players[currentPlayer];
-  if (p && d.at !== d.idx && d.at < p.rack.length && d.idx < p.rack.length) {
-    const [moved] = p.rack.splice(d.idx, 1);
-    p.rack.splice(d.at, 0, moved);
-  }
+  if (p) moveInLayout(p, d.idx, d.at);
   // Re-render once it has landed, so handlers pick up the new indices.
   setTimeout(() => {
     d.tile.style.transition = '';
@@ -2406,13 +2511,17 @@ $('shuffle').addEventListener('click', () => {
   const p = game.players[currentPlayer];
   if (!p) return;
   const before = rackRects();
-  // Shuffle slots alongside letters, so each tile knows where it came from.
-  const from = p.rack.map((_, i) => i);
-  for (let i = p.rack.length - 1; i > 0; i--) {
+  // Shuffle the whole tray, gaps and all — it is a request to start again.
+  // The parallel array tracks where each slot's contents came from, so the
+  // tiles slide to their new homes instead of blinking there.
+  const layout = layoutFor(p);
+  const from = layout.map((_, i) => i);
+  for (let i = layout.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [p.rack[i], p.rack[j]] = [p.rack[j], p.rack[i]];
+    [layout[i], layout[j]] = [layout[j], layout[i]];
     [from[i], from[j]] = [from[j], from[i]];
   }
+  rackLayouts.set(p.id, layout);
   renderRack();
   slideRack(before, { sourceOf: (i) => from[i] });
 });

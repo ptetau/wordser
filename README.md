@@ -34,20 +34,29 @@ over the old word (its letters are yours to reuse; arrows slide your word
 along the line), and a mutation tells you which tile the swap puts in your
 rack, since that is all it pays: it costs no points and no turn. Tapping an empty cell guesses which way the word should run from the
 letters around it — a slot between two tiles, a neighbour on one side, or
-the roomier axis at a corner — and Space or the direction button overrides
-it. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
+the roomier axis at a corner — and when nothing is touching it points at
+the nearest word instead, along the axis that word lies on, so spelling and
+then sliding with the arrow keys walks you into it. Space or the direction
+button overrides it. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
 ✓ play**), and ✓ carries the score, greying out with the reason when the
 word won't do. Whose turn it is is written at the top of Actions. The view stays where you
 put it; switch on *Glide the view to each new word* under the table's rules
 if you would rather it follow the play. Drag to
 pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
 **⌖** returns you to the last word played — handy on a 448-cell world.
+The last word always wears a halo: light spilling onto the board around it,
+never over the letters, so somebody else's move is obvious the moment you
+look.
 Once the first word is down, the setup controls (adding players, the share
 link, ending the day) fold away under *Players & setup* so the panel is
 mostly the game; open the fold any time and it stays open. The arrow keys drive a board cursor (the viewport follows):
 type to start a word at the cursor, press Enter on a tile to steal/mutate
-it, and `+`/`-` zoom. Drag rack tiles to rearrange them — the tray slides aside to
-make room and the tile settles into the gap — or ⇄ shuffle them all at once. Your name
+it, and `+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
+drag a tile into any of them, including the empty ones, and it stays where
+you put it. Laying out `C _ T` with a hole in the middle is how you see the
+play before you make it. Dragging works mid-word too, and a letter you have
+already placed leaves its slot open rather than closing the tray up. ⇄
+shuffle rearranges the lot. Your name
 is remembered between visits, and a fresh game starts with the cursor
 already on the ★. Controls you have never used carry a slow glint until you
 try them once. **Add CPU player 🤖** works in both modes: local games
@@ -77,8 +86,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
   rather than 15: neighbouring boards share a single triple-word rim
   instead of each bringing their own and doubling it at the join. 14
   divides the 448-cell world exactly 32 times, so the pattern meets itself
-  at the seam too. A premium counts only when the letter on it changed that
-  move.
+  at the seam too.
+- **A premium pays once, ever.** The first letter to land on a premium
+  square collects it, and the square is plain board from then on — a corner
+  triple-word cannot be re-mined by writing over the same cell tomorrow.
+  It follows that **adding to a word pays face value for the letters
+  already down**: only what you put there this move can carry a bonus, and
+  only if nobody has taken it. The world is 200,000 cells; the bonuses are
+  out where the words aren't.
 - **Turns, or a free-for-all.** New games rotate in seat order: the game
   says whose go it is and refuses anybody else. The admin can switch the
   table to **free-for-all**, where anyone may play so long as they don't go

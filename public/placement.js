@@ -2,13 +2,18 @@
 //
 // When a player taps an empty cell we have to pick a direction before they
 // have typed anything. Guessing well is worth real friction: the flip
-// control exists, but reaching for it every time is a tax. These rules read
-// the letters immediately around the cell — the ones the player can see —
-// and stop there. A default that reacts to tiles four cells away feels
-// haunted, so when the board says nothing we repeat the player's own last
-// choice instead of getting clever.
+// control exists, but reaching for it every time is a tax.
+//
+// The rules read the letters immediately around the cell first — a slot, a
+// neighbour, a corner — because those are the strongest statements a board
+// can make. When nothing is touching, the arrow points at the nearest word
+// instead: along the axis that word lies on, so spelling and then sliding
+// with the arrow keys walks you into it.
 
 import { DIRS } from './engine/board.js';
+
+/** How far out to look for the nearest word before giving up. */
+export const LOOK = 10;
 
 /**
  * Pick the likeliest direction for a word starting on the empty cell
@@ -54,8 +59,38 @@ export function defaultDirection(board, x, y, { rackSize = 7, lastDir = 'h' } = 
     if (across !== down) return across > down ? 'h' : 'v';
   }
 
-  // Nothing to go on: stay predictable rather than guess.
-  return lastDir === 'v' ? 'v' : 'h';
+  // Nothing is touching: point at the nearest word instead of guessing.
+  return nearestWordDirection(board, x, y) ?? (lastDir === 'v' ? 'v' : 'h');
+}
+
+/**
+ * The axis the closest letters lie on, or null when the board is empty for
+ * `LOOK` cells in every direction.
+ *
+ * Rings are searched from the inside out and the first one with an opinion
+ * wins, so a word two cells away always beats one nine cells away. Within a
+ * ring each letter votes for the axis it is furthest along: a letter three
+ * rows up and none across is a vote for the column. That is the useful
+ * answer even when the word is *behind* the cursor, because a word spelled
+ * down the same column can be slid up into it with the arrow keys, while a
+ * word spelled across can never reach it at all.
+ */
+export function nearestWordDirection(board, x, y, { look = LOOK } = {}) {
+  for (let r = 1; r <= look; r++) {
+    let h = 0;
+    let v = 0;
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dy = -r; dy <= r; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // this ring only
+        if (!board.get(x + dx, y + dy)) continue;
+        if (Math.abs(dx) > Math.abs(dy)) h++;
+        else if (Math.abs(dy) > Math.abs(dx)) v++;
+        // Exact diagonals say nothing about an axis, so they don't vote.
+      }
+    }
+    if (h !== v) return h > v ? 'h' : 'v';
+  }
+  return null;
 }
 
 /**
@@ -91,13 +126,17 @@ function countPlayable(board, x, y, dir, rack, dictionary) {
   for (let len = 2; len <= 4 && found < 2; len++) {
     for (let start = -(len - 1); start <= 0 && found < 2; start++) {
       const word = [];
+      const holes = [];
       let usable = true;
       for (let i = 0; i < len; i++) {
         const cx = x + (start + i) * dx;
         const cy = y + (start + i) * dy;
         const sitting = board.get(cx, cy);
         if (sitting) word.push(sitting.isBlank ? sitting.as : sitting.letter);
-        else if (word.length < len) word.push(null); // a blank to fill from the rack
+        else if (word.length < len) {
+          holes.push({ cx, cy, at: word.length });
+          word.push(null); // a blank to fill from the rack
+        }
         if (word.length > len) usable = false;
       }
       if (!usable) continue;
@@ -105,8 +144,35 @@ function countPlayable(board, x, y, dir, rack, dictionary) {
       const pool = [...letters];
       const filled = word.map((l) => (l === null ? pool.shift() : l));
       if (filled.some((l) => !l)) continue;
-      if (dictionary.has(filled.join(''))) found++;
+      if (!dictionary.has(filled.join(''))) continue;
+      // A word that only works by making nonsense sideways isn't playable —
+      // this is what tells a live axis from one that runs along a wall.
+      if (holes.every((h) => crossOk(board, h.cx, h.cy, filled[h.at], dir, dictionary))) {
+        found++;
+      }
     }
   }
   return found;
+}
+
+/**
+ * Would dropping `letter` on this empty cell leave a real word across it?
+ * Only the perpendicular run matters: the word being spelled is checked by
+ * the caller.
+ */
+function crossOk(board, x, y, letter, dir, dictionary) {
+  const [cdx, cdy] = DIRS[dir === 'h' ? 'v' : 'h'];
+  const read = (sign) => {
+    const out = [];
+    for (let n = 1; n <= 20; n++) {
+      const t = board.get(x + sign * n * cdx, y + sign * n * cdy);
+      if (!t) break;
+      out.push(t.isBlank ? t.as : t.letter);
+    }
+    return out;
+  };
+  const before = read(-1).reverse();
+  const after = read(1);
+  if (!before.length && !after.length) return true; // nothing beside it
+  return dictionary.has([...before, letter, ...after].join(''));
 }

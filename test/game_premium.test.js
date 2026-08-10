@@ -1,0 +1,78 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { Game } from '../public/engine/game.js';
+import { Dictionary } from '../public/engine/dictionary.js';
+import { premiumAt } from '../public/engine/premium.js';
+import { makeGame, tilesFor } from './helpers.js';
+
+// A premium square is a seam, not a crop: the first letter onto it takes the
+// bonus, and everything after is face value.
+
+test('the start star pays its double-word once, to whoever gets there first', () => {
+  const g = makeGame(['cat', 'cot'], {
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
+  });
+  assert.equal(premiumAt(0, 0), 'DW');
+  const first = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.equal(first.points, 10); // (3+1+1) doubled by the star
+
+  // Ben writes COT over it: the C is restated, so only the O is new — and
+  // the star has been spent, so nothing is doubled.
+  const second = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) });
+  assert.equal(second.points, 5); // 3 + 1 + 1, flat
+});
+
+test('a premium is spent even by a move that scored nothing for it', () => {
+  const g = makeGame(['cat', 'cot'], {
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'c', 'e', 'e', 'e', 'e', 'e']],
+  });
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.equal(g.spent.has('0,0'), true);
+  // ...and it stays spent through a serialization round trip.
+  const revived = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())), {
+    dictionary: new Dictionary(['cat', 'cot']),
+  });
+  assert.equal(revived.spent.has('0,0'), true);
+  const r = revived.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) });
+  assert.equal(r.points, 5);
+});
+
+test('extending a word pays face value for the letters already down', () => {
+  // AT on plain board, then a letter added in front of it. The old letters
+  // never bring a premium with them, spent or not.
+  const g = makeGame(['at', 'cat', 'ca'], {
+    racks: [['a', 't', 'e', 'e', 'e', 'e', 'e'], ['c', 'e', 'e', 'e', 'e', 'e', 'e']],
+  });
+  const first = g.place({ playerId: 0, tiles: tilesFor('at', 0, 0) });
+  assert.equal(first.points, 4); // (1+1) doubled by the star
+
+  const added = g.place({ playerId: 1, tiles: [{ x: -1, y: 0, letter: 'c' }] });
+  assert.equal(premiumAt(-1, 0), null, 'the cell in front is plain board');
+  assert.equal(added.points, 5); // c3 + a1 + t1, nothing doubled
+});
+
+test('the ore does not grow back with the new day', () => {
+  const g = makeGame(['cat', 'cot'], {
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
+  });
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  g.startNewDay();
+  assert.equal(g.spent.has('0,0'), true);
+  g.players[1].rack = ['o'];
+  assert.equal(g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) }).points, 5);
+});
+
+test('fresh ground still pays: the rule is per square, not per board', () => {
+  const g = makeGame(['cat', 'tat'], {
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['t', 'a', 't', 'e', 'e', 'e', 'e']],
+  });
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  // A word down an untouched column: its own premiums are all still there.
+  const down = g.place({
+    playerId: 1,
+    tiles: [{ x: 0, y: 1, letter: 'a' }, { x: 0, y: 2, letter: 't' }],
+  });
+  const cells = [[0, 0], [0, 1], [0, 2]];
+  const flat = cells.reduce((n, [x, y]) => n + (x === 0 && y === 0 ? 3 : 1), 0);
+  assert.ok(down.points >= flat, 'a new line of play is not penalised');
+});
