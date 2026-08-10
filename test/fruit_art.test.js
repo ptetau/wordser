@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FRUIT_EMOJI } from '../public/engine/game.js';
 import { FRUIT_DRAW, FRUIT_HUE, drawSpawn, spawnScale } from '../public/fruit.js';
+import { flourishFor, flourishAt } from '../public/flourish.js';
 
 /**
  * A canvas context that records what was asked of it. Enough for the fruit
@@ -123,4 +124,41 @@ test('the arrival flourish starts small, overshoots, and settles', () => {
   drawSpawn(ctx, 0, 0, 20, 0.5);
   assert.ok(ctx.calls.some((c) => c.name === 'stroke'), 'no ring');
   assert.ok(ctx.calls.some((c) => c.name === 'fill'), 'no twinkle');
+});
+
+// ------------------------------------------------------- word flourishes
+
+test('a bigger score earns a bigger flourish', () => {
+  assert.equal(flourishFor(2), 'wobble');
+  assert.equal(flourishFor(12), 'shake');
+  assert.equal(flourishFor(20), 'warp');
+  assert.equal(flourishFor(34), 'spin');
+  assert.equal(flourishFor(84), 'dance');
+});
+
+test('every flourish starts still, moves, and settles back', () => {
+  for (const kind of ['wobble', 'shake', 'warp', 'spin', 'dance']) {
+    const start = flourishAt(kind, 0, 0, 40);
+    const end = flourishAt(kind, 1, 0, 40);
+    assert.deepEqual(start, { dx: 0, dy: 0, rot: 0, scale: 1 }, `${kind} starts moved`);
+    assert.deepEqual(end, { dx: 0, dy: 0, rot: 0, scale: 1 }, `${kind} never settles`);
+
+    let moved = false;
+    for (let u = 0.05; u < 1; u += 0.05) {
+      const m = flourishAt(kind, u, 0, 40);
+      if (Math.abs(m.dx) + Math.abs(m.dy) + Math.abs(m.rot) + Math.abs(m.scale - 1) > 0.02) moved = true;
+      // However lively, it must stay roughly within its own cell.
+      assert.ok(Math.abs(m.dx) < 40 * 0.5, `${kind} wanders sideways at ${u}`);
+      assert.ok(Math.abs(m.dy) < 40 * 0.5, `${kind} wanders upward at ${u}`);
+      assert.ok(m.scale > 0.5 && m.scale < 1.5, `${kind} scales wildly at ${u}`);
+    }
+    assert.ok(moved, `${kind} never moves at all`);
+  }
+});
+
+test('letters take it in turn, so the word ripples', () => {
+  const first = flourishAt('dance', 0.05, 0, 40);
+  const fourth = flourishAt('dance', 0.05, 4, 40);
+  assert.notDeepEqual(first, fourth);
+  assert.deepEqual(fourth, { dx: 0, dy: 0, rot: 0, scale: 1 }, 'later letters wait their turn');
 });

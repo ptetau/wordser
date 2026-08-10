@@ -6,6 +6,7 @@ import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
 import { premiumAt } from './engine/premium.js';
 import { feasibleDirection } from './placement.js';
 import { drawFruit } from './fruit.js';
+import { FLOURISH_MS, flourishFor, flourishAt } from './flourish.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
 import { Online, NetError } from './net.js';
 import parlour from './themes/parlour.js';
@@ -202,8 +203,23 @@ function render() {
 
   const drawTile = (x, y, letter, { blank = false, pending = false, redefine = false } = {}) => {
     const t = T().tile;
-    const [cx, cy] = hexCenter(x, y);
+    let [cx, cy] = hexCenter(x, y);
+    const move = flourish(x, y);
+    if (move) {
+      // Transform about the tile's own centre so the letter rides with it.
+      ctx.save();
+      ctx.translate(cx + move.dx, cy + move.dy);
+      ctx.rotate(move.rot);
+      ctx.scale(move.scale, move.scale);
+      ctx.translate(-cx, -cy);
+    }
     const face = pending ? t.pendingFace : blank ? t.blankFace : t.face;
+    // A shadow under every tile: this is what makes them read as pieces
+    // resting on felt rather than colour printed onto it.
+    ctx.beginPath();
+    ctx.roundRect(cx - c * 0.4, cy - c * 0.36, c * 0.82, c * 0.86, c * 0.1);
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.fill();
     hexPath(cx, cy, c * 0.42);
     if (t.style === 'bevel') {
       // A soft top-lit face with a darker lower edge reads as a raised tile.
@@ -258,6 +274,7 @@ function render() {
     const v = blank ? 0 : LETTER_VALUES[letter] ?? 0;
     ctx.font = `${Math.floor(c * 0.19)}px ${T().letterFont ?? 'system-ui'}`;
     ctx.fillText(String(v), cx + c * 0.24, cy + c * 0.3);
+    if (move) ctx.restore();
   };
 
   const lm = lastWordKeys();
@@ -323,9 +340,15 @@ function render() {
 
     // Highlight the most recent move so opponent/CPU plays are easy to spot.
     if (lm?.has(Board.key(x, y))) {
-      hexPath(cx, cy, c * 0.46);
+      // The last word glows rather than being outlined: it stays legible
+      // under the letters instead of boxing them in.
+      hexPath(cx, cy, c * 0.47);
       ctx.strokeStyle = T().lastMove;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = Math.max(2, c * 0.06);
+      ctx.stroke();
+      hexPath(cx, cy, c * 0.42);
+      ctx.strokeStyle = 'rgba(255,214,160,0.28)';
+      ctx.lineWidth = 1;
       ctx.stroke();
     }
   }
@@ -969,6 +992,12 @@ function adoptView(d) {
       status(game.log[game.log.length - 1], '');
     }
   }
+  if (changed && game.lastMove && game.lastMove.playerId !== session.playerId) {
+    // The move came from elsewhere; the log line carries what it scored.
+    const line = game.log[game.log.length - 1] ?? '';
+    const scored = /\(\+(\d+)\)\s*$/.exec(line);
+    if (scored) startFlourish(game.lastMove.keys, Number(scored[1]));
+  }
   if (changed) announceArrivals();
   document.title =
     online() && game.lastPlayerId !== session.playerId && game.players.length > 1
@@ -984,6 +1013,7 @@ async function doMove(move, describe) {
       cancelModes();
       selected = null;
       adoptView(d);
+      if (typeof d.result?.points === 'number') startFlourish(game.lastMove?.keys, d.result.points);
       status(describe(d.result), 'good');
     } catch (err) {
       if (err instanceof NetError && err.status === 403) noteRemoved();
@@ -997,6 +1027,7 @@ async function doMove(move, describe) {
   try {
     const r = game.apply({ playerId: currentPlayer, ...move });
     if (r?.map) currentPlayer = r.map[currentPlayer]; // a removal renumbered the seats
+    if (typeof r?.points === 'number') startFlourish(game.lastMove?.keys, r.points);
     cancelModes();
     selected = null;
     status(describe(r), 'good');
@@ -1130,12 +1161,14 @@ function fruitNote(r) {
 function runCpuTurns() {
   if (online()) return;
   let acted = false;
+  let lastPoints = null;
   for (const p of game.players) {
     if (!p.isCpu) continue;
-    if (game.lastPlayerId === p.id) continue;
+    if (!game.isTheirTurn(p.id)) continue;
     const r = takeCpuTurn(game, p.id, cpuWordList);
     if (r) {
       acted = true;
+      if (typeof r.points === 'number') lastPoints = r.points;
       status(
         r.passed
           ? `${p.name} passed${r.dayEnded ? ' — everyone passed, a new day begins! ★' : ''}`
@@ -1148,6 +1181,7 @@ function runCpuTurns() {
   }
   if (acted) {
     showLastMove();
+    if (lastPoints != null) startFlourish(game.lastMove?.keys, lastPoints);
     refresh();
   }
 }
@@ -1439,6 +1473,43 @@ canvas.addEventListener(
 const ARROWS = {
   arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1],
 };
+
+// ------------------------------------------------------------ word flourish
+// A word that lands does something about it, the bigger the score the more.
+// Like the arrival sparkle, it runs on a loop that stops the moment the
+// movement is over.
+let flourishing = null; // { keys: Map<key, index>, kind, at }
+let flourishLoop = null;
+
+/** Set a word dancing. Called when a move lands, with what it scored. */
+function startFlourish(keys, points) {
+  if (reducedMotion?.matches || !keys?.length) return;
+  const ordered = new Map();
+  [...keys].sort().forEach((k, i) => ordered.set(k, i));
+  flourishing = { keys: ordered, kind: flourishFor(points), at: performance.now() };
+  if (flourishLoop !== null) return;
+  const step = () => {
+    if (!flourishing || performance.now() - flourishing.at > FLOURISH_MS) {
+      flourishing = null;
+      flourishLoop = null;
+      render();
+      return;
+    }
+    render();
+    flourishLoop = requestAnimationFrame(step);
+  };
+  flourishLoop = requestAnimationFrame(step);
+}
+
+/** The transform for the tile at (x, y), or null if it is sitting still. */
+function flourish(x, y) {
+  if (!flourishing) return null;
+  const i = flourishing.keys.get(Board.key(x, y));
+  if (i === undefined) return null;
+  const u = (performance.now() - flourishing.at) / FLOURISH_MS;
+  if (u >= 1) return null;
+  return flourishAt(flourishing.kind, u, i, cam.cell);
+}
 
 // ------------------------------------------------------------ fruit arrival
 // A fruit appearing is a moment worth pointing at, so each one gets a brief
@@ -2066,5 +2137,7 @@ window.wordser = {
   refresh,
   showLastMove,
   lastWordKeys,
+  startFlourish,
+  get flourishing() { return flourishing; },
   cam,
 };
