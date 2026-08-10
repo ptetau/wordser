@@ -22,7 +22,10 @@ Two ways to play:
 
 Tap a placed tile to steal or mutate its word — a steal is spelled right
 over the old word (its letters are yours to reuse; arrows slide your word
-along the line), and mutations pick from a letter grid. The ✓ button shows
+along the line), and mutations pick from a letter grid. Tapping an empty cell
+guesses which way the word should run from the letters around it — a slot
+between two tiles, a neighbour on one side, or the roomier axis at a corner
+— and Space or the direction button overrides it. The ✓ button shows
 the points a play will score before you commit. When a word is played and
 it isn't already on screen, the camera glides over to it, so you always see
 what just happened — touch the board and the view is yours again. Drag to
@@ -30,7 +33,8 @@ pan; pinch or scroll to zoom. The arrow keys drive a board cursor (the viewport 
 type to start a word at the cursor, press Enter on a tile to steal/mutate
 it, and `+`/`-` zoom. Drag rack tiles to rearrange them (or ⇄ shuffle). Your name
 is remembered between visits, and a fresh game starts with the cursor
-already on the ★. **Add CPU player 🤖** works in both modes: local games
+already on the ★. Controls you have never used carry a slow glint until you
+try them once. **Add CPU player 🤖** works in both modes: local games
 run the CPU in the browser, online games run it server-side — it takes its
 turn in the same request that applies yours, using the same rules-engine
 search. The game wears the Parlour look (mahogany tiles on green baize);
@@ -57,8 +61,12 @@ npm test           # engine + API test suite (node --test, no dependencies)
   pattern meets itself perfectly at the seam. The gutter reads as the margin
   between boards laid side by side. A premium counts only when the letter on
   it changed that move.
-- **Play after a friend.** You may only move after another player has moved —
-  nobody plays twice in a row (waived while you're alone in the game).
+- **Play after a friend.** You may only move after somebody else has moved.
+  Nobody takes two turns in a row — not across a day boundary, and not even
+  when you are the only player at the table, in which case the game tells
+  you to invite a friend or add a CPU player 🤖. Eating a fruit's choice of
+  letter, proposing the end of the day and voting on it are not turns, so
+  they never unblock you.
 - **One name each.** Two players in the same game can't share a name —
   case and stray spacing are ignored when comparing, so `Ada` and `  aDA `
   collide. Up to 16 players may sit at one online game.
