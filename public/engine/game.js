@@ -171,7 +171,9 @@ export class Game {
     const remap = (id) => (id == null || id === gone ? null : id > gone ? id - 1 : id);
     const map = this.players.map((_, i) => remap(i));
 
-    this.bag.pool.push(...target.rack); // their letters go back in today's bag
+    // Every letter they were holding goes back into today's bag.
+    this.#returnPendingChoice(target);
+    this.bag.put(...target.rack);
     this.players.splice(gone, 1);
     this.players.forEach((p, i) => (p.id = i));
     this.adminId = remap(this.adminId);
@@ -224,7 +226,9 @@ export class Game {
     } else {
       this.log.push(`day ${this.day} ends with no winner`);
     }
-    // A brand-new bag for the new day, dealt before the fresh racks.
+    // A brand-new 100-tile set for the new day, dealt before the fresh
+    // racks. Yesterday's unplayed letters go with yesterday's bag — only
+    // what reached the board outlives the day.
     this.bag.refill();
     for (const p of this.players) {
       p.score = 0;
@@ -402,9 +406,12 @@ export class Game {
         }
         this.log.push(`${player.name} ate a lemon ${FRUIT_EMOJI.lemon}: ${n} extra letter${n === 1 ? '' : 's'}`);
       } else if (type === 'chilli') {
-        const letter = FIERY_LETTERS[Math.floor(this.bag.rng() * FIERY_LETTERS.length)];
-        if (player.rack.length < RACK_MAX) player.rack.push(letter);
-        this.log.push(`${player.name} ate a chilli ${FRUIT_EMOJI.chilli}: a fiery "${letter.toUpperCase()}"`);
+        const letter = this.#drawFiery(player);
+        this.log.push(
+          letter
+            ? `${player.name} ate a chilli ${FRUIT_EMOJI.chilli}: a fiery "${letter.toUpperCase()}"`
+            : `${player.name} ate a chilli ${FRUIT_EMOJI.chilli}, but there was nothing hot left to draw`,
+        );
       } else if (type === 'cherry') {
         const offered = Array.from({ length: CHERRY_CHOICES }, () => this.bag.draw()).filter(Boolean);
         if (offered.length) {
@@ -418,15 +425,43 @@ export class Game {
         this.log.push(`${player.name} ate a grape ${FRUIT_EMOJI.grape}: +${GRAPE_POINTS} points`);
       } else if (type === 'banana') {
         const n = player.rack.length;
-        this.bag.pool.push(...player.rack);
+        this.bag.put(...player.rack);
         player.rack = Array.from({ length: n }, () => this.bag.draw()).filter(Boolean);
         this.log.push(`${player.name} ate a banana ${FRUIT_EMOJI.banana}: a fresh rack of ${player.rack.length}`);
       } else if (type === 'kiwi') {
-        if (player.rack.length < RACK_MAX) player.rack.push(BLANK);
-        this.log.push(`${player.name} ate a kiwi ${FRUIT_EMOJI.kiwi}: a wildcard`);
+        // Both wildcards live in the bag like any other tile.
+        const blank = player.rack.length < RACK_MAX ? this.bag.take(BLANK) : null;
+        if (blank) player.rack.push(blank);
+        this.log.push(
+          blank
+            ? `${player.name} ate a kiwi ${FRUIT_EMOJI.kiwi}: a wildcard`
+            : `${player.name} ate a kiwi ${FRUIT_EMOJI.kiwi}, but both wildcards are already in play`,
+        );
       }
     }
     return collected;
+  }
+
+  /**
+   * A chilli's letter comes out of the bag like every other tile: the
+   * hottest of J/Q/X/Z still in there, or failing that the highest-scoring
+   * letter left.
+   */
+  #drawFiery(player) {
+    if (player.rack.length >= RACK_MAX) return null;
+    const hot = FIERY_LETTERS.filter((l) => this.bag.has(l));
+    const letter = hot.length
+      ? this.bag.take(hot[Math.floor(this.bag.rng() * hot.length)])
+      : this.bag.takeBest();
+    if (letter) player.rack.push(letter);
+    return letter;
+  }
+
+  /** Hand back the cherry letters a player was offered but never kept. */
+  #returnPendingChoice(player) {
+    if (!player.pendingChoice) return;
+    this.bag.put(...player.pendingChoice);
+    delete player.pendingChoice;
   }
 
   /**
@@ -457,7 +492,7 @@ export class Game {
       if (d) drawn.push(d);
     }
     rackCopy.push(...drawn);
-    this.bag.pool.push(...letters);
+    this.bag.put(...letters); // returned only after the replacements are drawn
     player.rack = rackCopy;
     this.lastPlayerId = player.id;
     this.passed.clear();
@@ -544,7 +579,16 @@ export class Game {
     if (!Number.isInteger(i) || i < 0 || i >= choice.length) fail('invalid choice');
     const letter = choice[i];
     delete player.pendingChoice;
-    if (player.rack.length < RACK_MAX) player.rack.push(letter);
+    // Everything the player doesn't keep goes straight back into the bag.
+    const keeping = player.rack.length < RACK_MAX;
+    this.bag.put(...choice.filter((_, n) => !keeping || n !== i));
+    if (!keeping) {
+      this.log.push(
+        `${player.name}'s rack was full — the cherry's letters went back in the bag ${FRUIT_EMOJI.cherry}`,
+      );
+      return { letter: null };
+    }
+    player.rack.push(letter);
     this.log.push(`${player.name} kept "${letter.toUpperCase()}" from the cherry ${FRUIT_EMOJI.cherry}`);
     return { letter };
   }
@@ -831,14 +875,16 @@ export class Game {
       throw err;
     }
 
-    // Steal leftovers up to the rack cap; discard the rest.
+    // Steal leftovers up to the rack cap; the rest fall back into the bag.
     let stolen = 0;
     let discarded = 0;
     for (const t of pool) {
+      const letter = t.isBlank ? BLANK : t.letter;
       if (rackCopy.length < RACK_MAX) {
-        rackCopy.push(t.isBlank ? BLANK : t.letter);
+        rackCopy.push(letter);
         stolen += 1;
       } else {
+        this.bag.put(letter);
         discarded += 1;
       }
     }
@@ -868,7 +914,7 @@ export class Game {
       points,
       `stole "${existing.word.toUpperCase()}" → "${newWord.toUpperCase()}"` +
         (stolen ? `, took ${stolen} letter${stolen === 1 ? '' : 's'}` : '') +
-        (discarded ? `, discarded ${discarded}` : ''),
+        (discarded ? `, ${discarded} back in the bag` : ''),
       coveredKeys,
     );
     return { points, stolen, discarded, word: newWord, fruits };
@@ -876,8 +922,8 @@ export class Game {
 
   /**
    * Mutate move: swap one letter of an existing word for a tile from your
-   * rack. Every word through the cell must stay real. The replaced tile joins
-   * your rack if there's room (max RACK_MAX), otherwise it's discarded.
+   * rack. Every word through the cell must stay real. The replaced tile takes
+   * the place of the one you spent, so it always joins your rack.
    */
   mutate({ playerId, x, y, letter, fromBlank = false }) {
     this.#maybeRollover();
@@ -905,7 +951,8 @@ export class Game {
         if (!this.dictionary.has(w.word)) fail(`"${w.word}" is not a real word`);
       }
 
-      if (rackCopy.length < RACK_MAX) rackCopy.push(old.isBlank ? BLANK : old.letter);
+      // A swap is one tile out, one tile in, so the old one always fits.
+      rackCopy.push(old.isBlank ? BLANK : old.letter);
       player.rack = rackCopy;
 
       const changed = new Set([Board.key(x, y)]);

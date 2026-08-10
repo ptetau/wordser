@@ -498,7 +498,10 @@ function renderActions() {
       t.onclick = () =>
         doMove(
           { type: 'choose', playerId: chooser.id, index },
-          (r) => `kept "${r.letter.toUpperCase()}" from the cherry ${FRUIT_EMOJI.cherry}`,
+          (r) =>
+            r.letter
+              ? `kept "${r.letter.toUpperCase()}" from the cherry ${FRUIT_EMOJI.cherry}`
+              : 'your rack is full — the cherry went back in the bag',
         );
       picker.appendChild(t);
     });

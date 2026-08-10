@@ -51,4 +51,27 @@ export class Bag {
     const i = Math.floor(this.rng() * this.pool.length);
     return this.pool.splice(i, 1)[0];
   }
+
+  /** True while the bag still holds at least one of `letter`. */
+  has(letter) {
+    return this.pool.includes(letter);
+  }
+
+  /** Draw one particular letter, or null if the bag has none left. */
+  take(letter) {
+    const i = this.pool.indexOf(letter);
+    return i === -1 ? null : this.pool.splice(i, 1)[0];
+  }
+
+  /** Draw the highest-scoring letter left (blanks score 0, so last). */
+  takeBest() {
+    if (this.pool.length === 0) return null;
+    const best = this.pool.reduce((a, b) => (LETTER_VALUES[b] > LETTER_VALUES[a] ? b : a));
+    return this.take(best);
+  }
+
+  /** Put tiles back: discards, unkept offers, a departing player's rack. */
+  put(...letters) {
+    for (const l of letters) if (l) this.pool.push(l);
+  }
 }

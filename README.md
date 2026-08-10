@@ -57,6 +57,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
   the day's bag runs dry there are no more draws until tomorrow (steals
   and mutations still work — board letters become the economy). Placing
   7+ tiles earns a 50-point bingo.
+- **Every letter comes from the bag.** Nothing in the game mints a tile:
+  fruits draw theirs from the day's set like everything else, and letters
+  that leave a rack without reaching the board — steal leftovers, cherry
+  offers you turn down, the rack of a player who is removed — fall back
+  into the bag for someone else to draw. Within a day the hundred tiles
+  are only ever moved between bag, racks and board. A new day is the one
+  exception: it opens a brand-new set, and only the letters already on the
+  board carry over.
 - **Exchanging and passing.** Instead of playing a word, swap 1–7 rack
   letters back into the bag for fresh ones (needs the bag to hold at
   least that many), or pass outright. Both use your turn. When the bag
@@ -74,10 +82,10 @@ npm test           # engine + API test suite (node --test, no dependencies)
   the same line (it may be shorter or longer, and must overlap the word it
   replaces; every resulting word must be real). Old letters you reuse stay on
   the board; the leftovers are stolen into your rack up to a maximum of
-  **12 rack tiles — the rest are discarded**.
+  **12 rack tiles — anything over that drops back into the bag**.
 - **Mutating.** Swap a single letter of a board word for one of yours if
-  every word through that cell stays real. The ousted letter joins your rack
-  (space permitting).
+  every word through that cell stays real. The ousted letter takes the place
+  of the tile you spent, so it always joins your rack.
 - **Wildcard redefinition.** A blank on the board may be redefined to a
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.
@@ -85,10 +93,13 @@ npm test           # engine + API test suite (node --test, no dependencies)
   scattered widely across it, and most moves spawn another near the action
   (never bunched together, twelve at most). Cover one with a newly placed
   letter to eat it: 🍋 lemon feeds you two extra letters, 🌶️ chilli hands
-  you a high-scoring letter (J/Q/X/Z), 🍒 cherry lets you keep one letter
-  from a choice of seven (choosing doesn't use your turn), 🍇 grape is
-  worth 10 bonus points, 🍌 banana deals you a completely fresh rack, and
-  🥝 kiwi hands you a wildcard.
+  you a high-scoring letter (J/Q/X/Z, or the best the bag has left), 🍒
+  cherry lets you keep one letter from a choice of seven (choosing doesn't
+  use your turn), 🍇 grape is worth 10 bonus points, 🍌 banana deals you a
+  completely fresh rack, and 🥝 kiwi hands you a wildcard. Every one of
+  those letters is drawn from the day's bag — a fruit whose letter has run
+  out simply fizzles, and the six letters you turn down from a cherry go
+  straight back in.
 - **Running the table.** Whoever starts the game is its **admin 👑** (never
   a CPU seat — the first human to join takes it instead). The admin can
   **remove** any other player, whose letters go back into the day's bag and
