@@ -16,33 +16,33 @@ test('pattern recurs with the tile period in both axes', () => {
 
 test('the origin is a double-word start star and the motifs are classic', () => {
   assert.equal(premiumAt(0, 0), 'DW'); // board-centre star under the start cell
-  assert.equal(premiumAt(14, 14), 'TW'); // board corner
-  assert.equal(premiumAt(-14, 14), 'TW');
-  assert.equal(premiumAt(12, 12), 'DW'); // double-word diagonal X
-  assert.equal(premiumAt(20, 20), 'DW'); // its mirror in the next board
-  assert.equal(premiumAt(18, 18), 'TW'); // the next board's corner
-  assert.equal(premiumAt(4, 4), 'TL'); // triple-letter diamond
-  assert.equal(premiumAt(2, 2), 'DL');
-  assert.equal(premiumAt(0, 8), 'DL');
+  assert.equal(premiumAt(7, 7), 'TW'); // board corner, 7 squares out
+  assert.equal(premiumAt(-7, 7), 'TW');
+  assert.equal(premiumAt(6, 6), 'DW'); // double-word diagonal X
+  assert.equal(premiumAt(9, 9), 'DW'); // its mirror in the next board along
+  assert.equal(premiumAt(2, 2), 'TL'); // triple-letter diamond
+  assert.equal(premiumAt(1, 1), 'DL');
+  assert.equal(premiumAt(0, 4), 'DL');
 });
 
-test('odd cells and the gaps between motifs are empty', () => {
+test('the gaps between motifs are empty', () => {
   assert.equal(premiumAt(1, 0), null);
-  assert.equal(premiumAt(1, 1), null);
-  assert.equal(premiumAt(2, 0), null);
+  assert.equal(premiumAt(5, 0), null);
   assert.equal(premiumAt(6, 0), null);
+  assert.equal(premiumAt(2, 1), null);
   let premium = 0;
   for (let x = 0; x < PERIOD; x++) {
     for (let y = 0; y < PERIOD; y++) if (premiumAt(x, y)) premium++;
   }
+  // A real scrabble board carries 61 premiums in 225 squares.
   const density = premium / (PERIOD * PERIOD);
-  assert.ok(density > 0.04 && density < 0.1, `density ${density}`);
+  assert.ok(density > 0.2 && density < 0.32, `density ${density}`);
 });
 
 test('negative coordinates behave like positive ones', () => {
-  assert.equal(premiumAt(-32, 0), 'DW'); // one whole tile back
-  assert.equal(premiumAt(-12, -12), 'DW');
-  assert.equal(premiumAt(-4, -4), 'TL');
+  assert.equal(premiumAt(-15, 0), 'DW'); // one whole board back
+  assert.equal(premiumAt(-6, -6), 'DW');
+  assert.equal(premiumAt(-2, -2), 'TL');
 });
 
 test('the tiling closes seamlessly around the world', () => {
@@ -57,16 +57,13 @@ test('the tiling closes seamlessly around the world', () => {
   }
 });
 
-test('a plain gutter separates one board from the next', () => {
-  // 16 cells from the centre star, right between two boards.
-  for (let d = -14; d <= 14; d += 2) {
-    assert.equal(premiumAt(16, d), null, `gutter column has a premium at y=${d}`);
-    assert.equal(premiumAt(d, 16), null, `gutter row has a premium at x=${d}`);
-  }
-  // The boards either side of it are intact: corners at ±14 from each centre.
-  assert.equal(premiumAt(14, 14), 'TW');
-  assert.equal(premiumAt(18, 18), 'TW');
-  assert.equal(premiumAt(32, 32), 'DW'); // the next board's centre star
+test('boards sit edge to edge, sharing their triple-word rims', () => {
+  // Two boards meet between x=7 and x=8: both carry the classic TW edge,
+  // exactly as two boards laid side by side on a table would.
+  assert.equal(premiumAt(7, 0), 'TW');
+  assert.equal(premiumAt(8, 0), 'TW');
+  assert.equal(premiumAt(15, 15), 'DW'); // the next board's centre star
+  assert.equal(premiumAt(15, 0), 'DW'); // ...and its centre row
 });
 
 test('every lattice star the day can move to is a real board centre', () => {

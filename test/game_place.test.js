@@ -102,6 +102,7 @@ test('placing seven or more tiles earns the bingo bonus', () => {
     racks: [['a', 'b', 'c', 'd', 'e', 'f', 'g'], []],
   });
   const r = g.place({ playerId: 0, tiles: tilesFor('abcdefg', 0, 0) });
-  // Only the DW start star at the origin: (1+3+3+2+1+4+2) * 2, plus 50 bingo.
-  assert.equal(r.points, 16 * 2 + 50);
+  // DW start star under the A, and a DL under the E four along:
+  // (1+3+3+2+1+4+2 letters = 16, +1 for the doubled E) * 2, plus 50 bingo.
+  assert.equal(r.points, 17 * 2 + 50);
 });

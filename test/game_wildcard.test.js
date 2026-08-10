@@ -40,8 +40,9 @@ test('a wildcard can be redefined to fit your word if all words stay real', () =
   });
   assert.deepEqual(r.words, ['dog']);
   assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cot');
-  // no premiums under d or g (odd cells are always plain): 2+0+2
-  assert.equal(r.points, 4);
+  // A double-letter under both the D and the G, and the blank scores 0:
+  // (2*2) + 0 + (2*2).
+  assert.equal(r.points, 8);
 });
 
 test('a redefinition that breaks an existing word is rejected', () => {

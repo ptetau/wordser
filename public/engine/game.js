@@ -26,6 +26,10 @@ export const RACK_TARGET = 7;
 export const RACK_MAX = 12;
 export const BINGO_BONUS = 50;
 export const DAY_END_VOTE_MS = 2 * 60 * 1000;
+/** Sit on your turn this long and the game plays on without you. */
+export const IDLE_SKIP_MS = 8 * 60 * 60 * 1000;
+/** How far the ★ jumps when the day's bag runs dry. */
+export const STAR_JUMP = 20;
 
 // The first word of a game must cover the start cell, which always sits on
 // a double-word star of the premium tiling. It begins at the origin and
@@ -90,6 +94,8 @@ export class Game {
     this.#seedFruits();
     this.players = [];
     this.adminId = null; // the seat that may remove players and pass this on
+    this.mode = 'turns'; // 'turns' = strict rotation, 'free' = free-for-all
+    this.turnId = null; // whose turn it is, in 'turns' mode
     this.lastPlayerId = null;
     this.passed = new Set(); // players who passed since the last real move
     this.dayEndVote = null; // { proposer, agreed: [ids], expiresAt } while voting
@@ -117,10 +123,18 @@ export class Game {
     const clean = String(name ?? '').trim().replace(/\s+/g, ' ');
     if (!clean) fail('a player name is required');
     if (this.nameTaken(clean)) fail(`${clean} is already playing — pick another name`);
-    const player = { id: this.players.length, name: clean, rack: [], score: 0, stars: 0 };
+    const player = {
+      id: this.players.length, name: clean, rack: [], score: 0, stars: 0,
+      lastActedAt: this.now(), // the idle clock starts when you sit down
+      scored: [], // words this player has already been paid for today
+    };
     this.players.push(player);
     this.#refill(player);
     this.adminId ??= player.id; // whoever gets here first runs the game
+    if (this.turnId === null || this.turnId === undefined) {
+      this.turnId = player.id;
+      this.turnStartedAt = this.now();
+    }
     this.log.push(`${clean} joined the game 👋`);
     return player;
   }
@@ -184,6 +198,10 @@ export class Game {
     this.players.forEach((p, i) => (p.id = i));
     this.adminId = remap(this.adminId);
     this.lastPlayerId = remap(this.lastPlayerId);
+    // If it was their turn, it passes to whoever slid into their seat.
+    this.turnId = this.turnId === gone
+      ? (this.players.length ? gone % this.players.length : null)
+      : remap(this.turnId);
     this.passed = new Set([...this.passed].map(remap).filter((id) => id !== null));
     if (this.lastMove && this.lastMove.playerId === gone) this.lastMove.playerId = null;
     this.log.push(`${target.name} was removed from the game`);
@@ -217,16 +235,116 @@ export class Game {
   }
 
   /**
-   * Nobody plays two turns in a row — not even the only player at the
-   * table, who has to find someone (or something) to play against.
+   * May this player move? Under 'turns' the seat rotates and only the
+   * player holding it may act. Under 'free' anyone may, so long as they
+   * don't take two turns in a row — not even the only player at the table,
+   * who has to find someone (or something) to play against.
    */
   #assertCanPlay(player) {
+    if (this.mode === 'turns') {
+      if (this.turnId === null || this.turnId === player.id) return;
+      fail(`it is ${this.player(this.turnId).name}'s turn`);
+    }
     if (this.lastPlayerId !== player.id) return;
     fail(
       this.players.length > 1
         ? 'you can only play after a friend has played'
         : 'you have played — add a friend or a CPU player 🤖 to keep going',
     );
+  }
+
+  /** True if this player is the one the game is waiting on. */
+  isTheirTurn(playerId) {
+    if (!this.players.length) return false;
+    if (this.mode === 'turns') return this.turnId === null || this.turnId === playerId;
+    return this.lastPlayerId !== playerId || this.players.length === 0;
+  }
+
+  /** Hand the turn to the next seat along (a no-op in free-for-all). */
+  #advanceTurn(fromId) {
+    if (this.mode !== 'turns' || !this.players.length) return;
+    const from = fromId ?? this.turnId ?? 0;
+    this.turnId = (from + 1) % this.players.length;
+    this.turnStartedAt = this.now();
+  }
+
+  /** Note that a seat has just acted, for the idle clock. */
+  #noteActed(player) {
+    player.lastActedAt = this.now();
+  }
+
+  /**
+   * Switch between strict rotation and free-for-all. The admin's call, and
+   * it takes effect from the next move.
+   */
+  setMode({ playerId, mode }) {
+    this.#maybeRollover();
+    this.#assertAdmin(playerId);
+    if (mode !== 'turns' && mode !== 'free') fail(`unknown mode: ${mode}`);
+    if (this.mode === mode) return { mode };
+    this.mode = mode;
+    if (mode === 'turns') {
+      // Pick up where play left off rather than jumping back to seat 0.
+      this.turnId = this.lastPlayerId === null
+        ? 0
+        : (this.lastPlayerId + 1) % this.players.length;
+      this.turnStartedAt = this.now();
+    }
+    this.log.push(
+      mode === 'turns'
+        ? 'the game now takes strict turns 🔁'
+        : 'the game is now free-for-all — play whenever a friend has 🎲',
+    );
+    return { mode };
+  }
+
+  /**
+   * Pass the turn on for somebody who isn't playing. The admin may do this
+   * whenever, and the clock does it by itself once a player has sat on
+   * their turn for IDLE_SKIP_MS.
+   */
+  skipTurn({ playerId, targetId, auto = false }) {
+    if (!auto) {
+      this.#maybeRollover();
+      this.#assertAdmin(playerId);
+    }
+    if (this.mode !== 'turns') fail('there are no turns to skip in a free-for-all');
+    const target = this.player(targetId ?? this.turnId ?? 0);
+    if (this.turnId !== target.id) fail(`it is not ${target.name}'s turn to skip`);
+    this.log.push(
+      auto
+        ? `${target.name} was away, so their turn passed ⏭`
+        : `${target.name}'s turn was skipped`,
+    );
+    this.passed.add(target.id);
+    this.lastPlayerId = target.id;
+    this.#noteActed(target); // a skip restarts their idle clock
+    this.#advanceTurn(target.id);
+    if (this.bag.pool.length === 0 && this.passed.size >= this.players.length) {
+      this.log.push('everyone passed on an empty bag — the day ends early');
+      this.startNewDay();
+      return { skipped: target.name, dayEnded: true };
+    }
+    return { skipped: target.name, dayEnded: false };
+  }
+
+  /**
+   * Skip whoever has been sitting on their turn too long. The clock runs
+   * from when they were handed the turn, not from when they last played —
+   * somebody who waited all day for their go still gets their full eight
+   * hours to take it.
+   */
+  skipIfIdle() {
+    if (this.mode !== 'turns' || this.turnId === null || this.players.length < 2) return false;
+    const waiting = this.players[this.turnId];
+    if (!waiting || waiting.isCpu) return false;
+    if (this.turnStartedAt == null) {
+      this.turnStartedAt = this.now(); // start the clock on first sight
+      return false;
+    }
+    if (this.now() - this.turnStartedAt < IDLE_SKIP_MS) return false;
+    this.skipTurn({ targetId: waiting.id, auto: true });
+    return true;
   }
 
   /** Award stars for the day that just ended, reset scores, start a new day. */
@@ -243,8 +361,10 @@ export class Game {
     // racks. Yesterday's unplayed letters go with yesterday's bag — only
     // what reached the board outlives the day.
     this.bag.refill();
+    this.starJumped = false;
     for (const p of this.players) {
       p.score = 0;
+      p.scored = []; // yesterday's words pay again today
       // A new day deals everyone a completely fresh rack.
       p.rack = [];
       delete p.pendingChoice;
@@ -289,6 +409,7 @@ export class Game {
    */
   tickClock() {
     let changed = this.rolloverIfNeeded();
+    if (this.skipIfIdle()) changed = true;
     if (this.dayEndVote && this.now() >= this.dayEndVote.expiresAt) {
       this.log.push('nobody objected in time — the day ends ⏳');
       this.startNewDay();
@@ -317,6 +438,28 @@ export class Game {
     }
   }
 
+  /**
+   * Have they already been paid for this word today? Swapping a letter back
+   * and forth to re-score the same word is farming, not play, so each word
+   * pays a given player once per day.
+   */
+  #alreadyScored(player, word) {
+    return player.scored.includes(word);
+  }
+
+  #noteScored(player, words) {
+    for (const w of words) if (!player.scored.includes(w)) player.scored.push(w);
+  }
+
+  /**
+   * What this word pays this player: its face value the first time they
+   * make it today, nothing after that.
+   */
+  #payFor(player, w, changed) {
+    if (this.#alreadyScored(player, w.word)) return 0;
+    return this.#scoreWord(w.cells, changed);
+  }
+
   #scoreWord(cells, changed) {
     let sum = 0;
     let mult = 1;
@@ -337,12 +480,15 @@ export class Game {
   #commit(player, points, message, coveredKeys = []) {
     player.score += points;
     this.lastPlayerId = player.id;
+    this.#noteActed(player);
+    this.#advanceTurn(player.id);
     this.passed.clear();
     this.#cancelDayVoteOnPlay(player);
     this.#refill(player);
     this.log.push(`${player.name}: ${message} (+${points})`);
     const fruits = this.#collectFruits(player, coveredKeys);
     this.spawnFruit(FRUIT_CHANCE, coveredKeys);
+    this.#maybeJumpStar();
     return fruits;
   }
 
@@ -357,6 +503,29 @@ export class Game {
       r -= weight;
     }
     return type;
+  }
+
+  /**
+   * An empty bag ends the scramble for letters, so the ★ jumps at least
+   * STAR_JUMP cells clear of where it was — a fresh mark on a board that
+   * has been fought over all day. Once per day.
+   */
+  #maybeJumpStar() {
+    if (this.starJumped || this.bag.pool.length > 0 || !this.players.length) return;
+    this.starJumped = true;
+    const far = [];
+    for (let x = 0; x < WORLD; x += PERIOD) {
+      for (let y = 0; y < WORLD; y += PERIOD) {
+        const dx = Math.abs(x - this.startCell.x);
+        const dy = Math.abs(y - this.startCell.y);
+        const d = Math.max(Math.min(dx, WORLD - dx), Math.min(dy, WORLD - dy));
+        if (d >= STAR_JUMP) far.push([x, y]);
+      }
+    }
+    if (!far.length) return;
+    const [nx, ny] = far[Math.floor(this.bag.rng() * far.length)];
+    this.startCell = { x: nx, y: ny };
+    this.log.push(`the bag is empty — the ★ moved somewhere new`);
   }
 
   /** Smallest toroidal chebyshev distance from (x, y) to any current fruit. */
@@ -544,9 +713,12 @@ export class Game {
     this.bag.put(...letters); // returned only after the replacements are drawn
     player.rack = rackCopy;
     this.lastPlayerId = player.id;
+    this.#noteActed(player);
+    this.#advanceTurn(player.id);
     this.passed.clear();
     this.#cancelDayVoteOnPlay(player);
     this.log.push(`${player.name}: exchanged ${letters.length} letter${letters.length === 1 ? '' : 's'} (+0)`);
+    this.#maybeJumpStar();
     return { exchanged: letters.length, drawn: drawn.length, points: 0 };
   }
 
@@ -607,6 +779,8 @@ export class Game {
     const player = this.player(playerId);
     this.#assertCanPlay(player);
     this.lastPlayerId = player.id;
+    this.#noteActed(player);
+    this.#advanceTurn(player.id);
     this.passed.add(player.id);
     this.log.push(`${player.name}: passed`);
     if (this.bag.pool.length === 0 && this.passed.size >= this.players.length) {
@@ -653,12 +827,41 @@ export class Game {
    *   wildcards already on the board to reassign so they fit the new word.
    */
   place({ playerId, tiles, redefinitions = [] }) {
+    return this.#lay({ playerId, tiles, redefinitions, over: false });
+  }
+
+  /**
+   * Overwrite move: lay a word straight across letters already on the
+   * board. Every word it touches must still be real afterwards, and it has
+   * to say something new — you can't rewrite a word as itself. The letters
+   * you cover are prised off the board and are yours, up to the rack cap.
+   *
+   * @param {object} m
+   * @param {number} m.playerId
+   * @param {{x:number, y:number, letter:string, fromBlank?:boolean}[]} m.tiles
+   * @param {{x:number, y:number, as:string}[]} [m.redefinitions]
+   */
+  overwrite({ playerId, tiles, redefinitions = [] }) {
+    return this.#lay({ playerId, tiles, redefinitions, over: true });
+  }
+
+  #lay({ playerId, tiles, redefinitions = [], over }) {
     this.#maybeRollover();
     const player = this.player(playerId);
     this.#assertCanPlay(player);
 
     if (!Array.isArray(tiles) || tiles.length === 0) fail('no tiles to place');
     const boardWasEmpty = this.board.isEmpty();
+    if (over) {
+      // Spelling a word over the board naturally re-states the letters that
+      // already fit — COT over CAT keeps the C and the T. Those cost nothing
+      // and change nothing, so drop them and work with what really moves.
+      tiles = tiles.filter((t) => {
+        const sitting = this.board.get(t.x, t.y);
+        return !sitting || t.fromBlank || Board.effective(sitting) !== t.letter;
+      });
+      if (!tiles.length) fail('that would change nothing');
+    }
 
     // Rack availability.
     const rackCopy = [...player.rack];
@@ -673,9 +876,14 @@ export class Game {
     // Distinct, empty target cells on one line.
     const keys = new Set(tiles.map((t) => Board.key(t.x, t.y)));
     if (keys.size !== tiles.length) fail('duplicate target cell');
+    const covered = []; // tiles being written over, to be picked up after
     for (const t of tiles) {
-      if (this.board.get(t.x, t.y)) fail(`cell (${t.x},${t.y}) is already occupied`);
+      const sitting = this.board.get(t.x, t.y);
+      if (!sitting) continue;
+      if (!over) fail(`cell (${t.x},${t.y}) is already occupied`);
+      covered.push({ x: t.x, y: t.y, tile: sitting });
     }
+    if (over && !covered.length) fail('that writes over nothing — just play the word');
     const dir = tiles.every((t) => t.y === tiles[0].y)
       ? 'h'
       : tiles.every((t) => t.x === tiles[0].x)
@@ -683,6 +891,9 @@ export class Game {
         : fail('tiles must be placed in a single row or column');
 
     // Tentatively apply; anything below that fails must revert.
+    const before = over
+      ? DIR_NAMES.map((d) => this.board.wordThrough(tiles[0].x, tiles[0].y, d)?.word).filter(Boolean)
+      : [];
     const placed = [];
     const redefined = [];
     try {
@@ -741,7 +952,9 @@ export class Game {
         fail('the first word must cover the start cell ★');
       }
       // ...and the play must connect to the existing board (unless it's empty).
-      if (!boardWasEmpty) {
+      // Writing over letters is connection enough; a placement has to reach
+      // something that was already there.
+      if (!boardWasEmpty && !covered.length) {
         const connects = formed.some((w) =>
           w.cells.some((c) => !keys.has(Board.key(c.x, c.y))),
         );
@@ -750,6 +963,10 @@ export class Game {
 
       for (const w of formed) {
         if (!this.dictionary.has(w.word)) fail(`"${w.word}" is not a real word`);
+      }
+      // An overwrite has to say something new.
+      if (over && formed.every((w) => before.includes(w.word))) {
+        fail('an overwrite has to make a different word');
       }
 
       // Redefinitions must fit the word being played, and every word through
@@ -762,16 +979,35 @@ export class Game {
       }
 
       const changed = new Set(tiles.map((t) => Board.key(t.x, t.y)));
-      let points = formed.reduce((acc, w) => acc + this.#scoreWord(w.cells, changed), 0);
+      let points = formed.reduce((acc, w) => acc + this.#payFor(player, w, changed), 0);
+      const repeats = formed.filter((w) => this.#alreadyScored(player, w.word)).map((w) => w.word);
+      this.#noteScored(player, formed.map((w) => w.word));
       if (tiles.length >= RACK_TARGET) points += BINGO_BONUS;
 
+      // Letters written over are prised off the board and pocketed, up to
+      // the rack cap; the rest fall back into the day's bag.
+      // One tile spent per letter covered, so the rack always has room for
+      // what comes off the board.
+      let taken = 0;
+      for (const c of covered) {
+        rackCopy.push(c.tile.isBlank ? BLANK : c.tile.letter);
+        taken += 1;
+      }
       player.rack = rackCopy;
       const main = formed.find((w) => w.dir === dir) ?? formed[0];
       this.lastMove = { playerId, keys: [...changed] };
-      const fruits = this.#commit(player, points, `played "${main.word.toUpperCase()}"`, [...changed]);
-      return { points, words: formed.map((w) => w.word), fruits };
+      const note = repeats.length
+        ? ` (${repeats.map((w) => w.toUpperCase()).join(', ')} already scored today)`
+        : '';
+      const took = taken ? `, took ${taken} letter${taken === 1 ? '' : 's'}` : '';
+      const verb = over ? 'wrote over' : 'played';
+      const fruits = this.#commit(
+        player, points, `${verb} "${main.word.toUpperCase()}"${took}${note}`, [...changed],
+      );
+      return { points, words: formed.map((w) => w.word), repeats, taken, fruits };
     } catch (err) {
       for (const t of placed) this.board.remove(t.x, t.y);
+      for (const c of covered) this.board.set(c.x, c.y, c.tile); // put them back
       for (const r of redefined) {
         const tile = this.board.get(r.x, r.y);
         if (tile?.isBlank) tile.as = r.was;
@@ -940,14 +1176,19 @@ export class Game {
     player.rack = rackCopy;
 
     const main = this.board.wordThrough(spanCell(0).x, spanCell(0).y, dir);
-    let points = this.#scoreWord(main.cells, changed);
+    const scoredWords = [main];
+    let points = this.#payFor(player, main, changed);
     for (const c of main.cells) {
       if (!changed.has(Board.key(c.x, c.y))) continue;
       for (const cd of crossDirs) {
         const w = this.board.wordThrough(c.x, c.y, cd);
-        if (w && w.cells.length >= 2) points += this.#scoreWord(w.cells, changed);
+        if (w && w.cells.length >= 2) {
+          points += this.#payFor(player, w, changed);
+          scoredWords.push(w);
+        }
       }
     }
+    this.#noteScored(player, scoredWords.map((w) => w.word));
 
     const coveredKeys = [];
     for (let j = 0; j < L; j++) {
@@ -1005,7 +1246,8 @@ export class Game {
       player.rack = rackCopy;
 
       const changed = new Set([Board.key(x, y)]);
-      const points = words.reduce((acc, w) => acc + this.#scoreWord(w.cells, changed), 0);
+      const points = words.reduce((acc, w) => acc + this.#payFor(player, w, changed), 0);
+      this.#noteScored(player, words.map((w) => w.word));
       this.lastMove = { playerId, keys: [Board.key(x, y)] };
       this.#commit(
         player,
@@ -1026,6 +1268,8 @@ export class Game {
         return this.place(move);
       case 'steal':
         return this.stealReplace(move);
+      case 'overwrite':
+        return this.overwrite(move);
       case 'mutate':
         return this.mutate(move);
       case 'exchange':
@@ -1042,6 +1286,10 @@ export class Game {
         return this.removePlayer(move);
       case 'admin':
         return this.transferAdmin(move);
+      case 'mode':
+        return this.setMode(move);
+      case 'skip':
+        return this.skipTurn(move);
       default:
         fail(`unknown move type: ${move?.type}`);
     }
@@ -1054,6 +1302,10 @@ export class Game {
       dateKey: this.dateKey,
       lastPlayerId: this.lastPlayerId,
       adminId: this.adminId,
+      mode: this.mode,
+      turnId: this.turnId,
+      turnStartedAt: this.turnStartedAt ?? null,
+      starJumped: Boolean(this.starJumped),
       players: this.players.map((p) => ({ ...p, rack: [...p.rack] })),
       cells: [...this.board.cells.entries()].map(([k, tile]) => {
         const [x, y] = k.split(',').map(Number);
@@ -1082,6 +1334,14 @@ export class Game {
     // Games saved before admin rights existed hand them to the first human.
     const firstHuman = game.players.findIndex((p) => !p.isCpu);
     game.adminId = data.adminId ?? (firstHuman === -1 ? null : firstHuman);
+    game.mode = data.mode === 'free' ? 'free' : 'turns';
+    game.starJumped = Boolean(data.starJumped);
+    game.turnId = data.turnId ?? (game.players.length ? 0 : null);
+    game.turnStartedAt = data.turnStartedAt ?? game.now();
+    for (const p of game.players) {
+      p.lastActedAt ??= game.now();
+      p.scored ??= [];
+    }
     for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
     game.fruits.clear(); // replace the constructor's fresh scatter with the snapshot's
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);

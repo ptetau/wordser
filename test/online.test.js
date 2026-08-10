@@ -64,7 +64,7 @@ test('states are personalized: own rack visible, others masked, no tokens', asyn
   assert.ok(ben.game.players[0].rack.every((l) => l === '?'));
 });
 
-test('the server enforces credentials and the friend rule', async () => {
+test('the server enforces credentials and whose turn it is', async () => {
   const store = memoryStore();
   const { ana } = await setupGame(store);
   const bad = await handleAction(store, {
@@ -81,9 +81,10 @@ test('the server enforces credentials and the friend rule', async () => {
     { x: 0, y: 0, letter: 'c' }, { x: 1, y: 0, letter: 'a' }, { x: 2, y: 0, letter: 't' },
   ]));
   assert.equal(first.status, 200);
+  // New games rotate turns, so Ana has to wait for Ben.
   const second = await handleAction(store, mv([{ x: 3, y: 0, letter: 'a' }]));
   assert.equal(second.status, 400);
-  assert.match(second.data.error, /friend/);
+  assert.match(second.data.error, /Ben's turn/);
 });
 
 test('unknown games and stale polls answer cheaply', async () => {
@@ -118,9 +119,9 @@ test('a CPU seat can be added to an online game and plays for itself', async () 
   const cpu = added.data.game.players[1];
   assert.ok(cpu.isCpu);
   assert.match(cpu.name, /Robo/);
-  // Ana had not played, so the CPU was free to open immediately.
-  assert.equal(added.data.game.lastPlayerId, 1);
-  assert.ok(added.data.game.cells.length >= 2);
+  // Turn-based by default: it is still Ana's move, so the robot waits.
+  assert.equal(added.data.game.turnId, 0);
+  assert.equal(added.data.game.cells.length, 0);
   // Nobody can act as the CPU: it has no token.
   const bad = await handleAction(store, {
     action: 'move', id: ana.id, playerId: 1, token: 'x',

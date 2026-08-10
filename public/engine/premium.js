@@ -1,24 +1,12 @@
-// Premium squares on the infinite plain.
+// Premium squares: the real scrabble board, tiled across the world.
 //
-// The classic scrabble board layout, tiled seamlessly forever and stretched
-// to double scale so the criss-cross motifs breathe. The standard 15×15
-// board is mirror-symmetric about its centre lines, and its last row and
-// column repeat its first, so dropping them gives a 14×14 tile that
-// reproduces the familiar pattern — triple-word corners, double-word
-// diagonal X's, the triple/double-letter diamonds. Each premium sits two
-// cells from its neighbours (SCALE = 2), which halves the density and
-// widens the whole lattice.
-
-// The tile has to divide the world for the pattern to close on itself, and
-// the world is 512 cells — a power of two, which no multiple of the classic
-// 15-square board can divide. So each board is laid out with a one-square
-// gutter of plain cells along two of its sides: 15 + 1 = 16 squares, 32
-// cells at double scale, and 512 / 32 = 16 boards across the torus. The
-// gutter reads as the margin between boards laid side by side, and every
-// board inside it is the genuine article.
-const SCALE = 2;
-const BOARD = 15; // the classic board, in classic squares
-const TILE = BOARD + 1; // ...plus the gutter that makes the tiling close
+// The real scrabble board, tiled edge to edge at its own scale: 15 squares
+// across, which divides the 480-cell world exactly 32 times, so the pattern
+// meets itself perfectly at the seam. Adjacent boards share their triple-word
+// edges, the way two boards laid side by side on a table would.
+const SCALE = 1;
+const BOARD = 15; // the classic board, in squares
+const TILE = BOARD;
 export const PERIOD = TILE * SCALE;
 
 const mod = (n, m) => ((n % m) + m) % m;
@@ -43,12 +31,10 @@ const QUADRANT = {
 export function premiumAt(x, y) {
   const px = mod(x, PERIOD);
   const py = mod(y, PERIOD);
-  if (px % SCALE !== 0 || py % SCALE !== 0) return null;
-  // Centre the board on the origin: the 15 squares either side of it are
-  // the board, the 16th is the gutter between this board and the next.
+  // Centre a board on the origin, then fold to the quadrant the layout is
+  // stored in — the classic board is mirror-symmetric about both centres.
   let u = mod(px / SCALE + 7, TILE);
   let v = mod(py / SCALE + 7, TILE);
-  if (u >= BOARD || v >= BOARD) return null; // the gutter is always plain
   if (u > 7) u = 14 - u;
   if (v > 7) v = 14 - v;
   return QUADRANT[`${u},${v}`] ?? null;

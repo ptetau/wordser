@@ -17,8 +17,8 @@ test('ending the day awards stars, resets scores, moves the star, deals racks', 
   assert.equal(g.day, 2);
   // The start star wandered to a different double-word star...
   assert.notDeepEqual(g.startCell, { x: 0, y: 0 });
-  assert.equal(g.startCell.x % 32, 0);
-  assert.equal(g.startCell.y % 32, 0);
+  assert.equal(g.startCell.x % 15, 0);
+  assert.equal(g.startCell.y % 15, 0);
   assert.equal(premiumAt(g.startCell.x, g.startCell.y), 'DW'); // still a star
   // ...and everyone drew a completely fresh rack.
   assert.equal(g.players[0].rack.length, 7);
