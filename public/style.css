@@ -164,3 +164,9 @@ details li { margin: 6px 0; }
 
 #rack .tile { touch-action: none; }
 .tile.selected { outline: 3px solid var(--accent); outline-offset: -1px; }
+
+#day-vote {
+  padding: 8px 10px; border-radius: 8px; margin-bottom: 8px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  border: 1px solid var(--accent); font-size: 13px;
+}

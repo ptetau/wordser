@@ -23,6 +23,7 @@ import { LETTER_VALUES, BLANK, Bag } from './tiles.js';
 export const RACK_TARGET = 7;
 export const RACK_MAX = 12;
 export const BINGO_BONUS = 50;
+export const DAY_END_VOTE_MS = 2 * 60 * 1000;
 
 // The first word of a game must cover the start cell, which always sits on
 // a double-word star of the premium tiling. It begins at the origin and
@@ -82,6 +83,7 @@ export class Game {
     this.players = [];
     this.lastPlayerId = null;
     this.passed = new Set(); // players who passed since the last real move
+    this.dayEndVote = null; // { proposer, agreed: [ids], expiresAt } while voting
     this.day = 1;
     this.now = now ?? (() => Date.now());
     this.dateKey = this.#dateKey();
@@ -149,6 +151,7 @@ export class Game {
     this.day += 1;
     this.lastPlayerId = null;
     this.passed.clear();
+    this.dayEndVote = null;
     this.dateKey = this.#dateKey();
     return winners;
   }
@@ -162,8 +165,29 @@ export class Game {
     return false;
   }
 
+  /**
+   * Resolve everything the clock owes us: the daily rollover, and a day-end
+   * proposal whose response timer has run out. Returns true if state changed.
+   */
+  tickClock() {
+    let changed = this.rolloverIfNeeded();
+    if (this.dayEndVote && this.now() >= this.dayEndVote.expiresAt) {
+      this.log.push('nobody objected in time — the day ends ⏳');
+      this.startNewDay();
+      changed = true;
+    }
+    return changed;
+  }
+
   #maybeRollover() {
-    this.rolloverIfNeeded();
+    this.tickClock();
+  }
+
+  #cancelDayVoteOnPlay(player) {
+    if (this.dayEndVote) {
+      this.dayEndVote = null;
+      this.log.push(`${player.name} plays on — the day continues`);
+    }
   }
 
   #checkWordsThrough(x, y) {
@@ -196,6 +220,7 @@ export class Game {
     player.score += points;
     this.lastPlayerId = player.id;
     this.passed.clear();
+    this.#cancelDayVoteOnPlay(player);
     this.#refill(player);
     this.log.push(`${player.name}: ${message} (+${points})`);
     const fruits = this.#collectFruits(player, coveredKeys);
@@ -341,8 +366,56 @@ export class Game {
     player.rack = rackCopy;
     this.lastPlayerId = player.id;
     this.passed.clear();
+    this.#cancelDayVoteOnPlay(player);
     this.log.push(`${player.name}: exchanged ${letters.length} letter${letters.length === 1 ? '' : 's'} (+0)`);
     return { exchanged: letters.length, drawn: drawn.length, points: 0 };
+  }
+
+  /**
+   * Propose ending the day. Only possible once today's bag is empty. Starts
+   * a two-minute response window: any player may cancel (or simply play on),
+   * and if everyone agrees — or nobody objects before the timer runs out —
+   * the day ends. CPU players always agree. A lone player ends it at once.
+   */
+  proposeDayEnd({ playerId }) {
+    this.#maybeRollover();
+    const player = this.player(playerId);
+    if (this.bag.pool.length > 0) fail('the day can only be ended once the bag is empty');
+    if (this.dayEndVote) fail('a day-end proposal is already underway');
+    const agreed = new Set([player.id]);
+    for (const p of this.players) if (p.isCpu) agreed.add(p.id);
+    this.dayEndVote = {
+      proposer: player.id,
+      agreed: [...agreed],
+      expiresAt: this.now() + DAY_END_VOTE_MS,
+    };
+    this.log.push(`${player.name} proposes ending the day — 2 minutes to respond ⏳`);
+    if (agreed.size >= this.players.length) return this.#endDayByAgreement();
+    return { proposed: true, dayEnded: false, expiresAt: this.dayEndVote.expiresAt };
+  }
+
+  /** Respond to a day-end proposal: agree, or cancel it and play on. */
+  voteDayEnd({ playerId, agree }) {
+    this.#maybeRollover();
+    const player = this.player(playerId);
+    if (!this.dayEndVote) fail('no day-end proposal is underway');
+    if (!agree) {
+      this.dayEndVote = null;
+      this.log.push(`${player.name} wants to keep playing — the day continues`);
+      return { cancelled: true, dayEnded: false };
+    }
+    const agreed = new Set(this.dayEndVote.agreed);
+    agreed.add(player.id);
+    this.dayEndVote.agreed = [...agreed];
+    this.log.push(`${player.name} agrees to end the day`);
+    if (agreed.size >= this.players.length) return this.#endDayByAgreement();
+    return { agreed: true, dayEnded: false };
+  }
+
+  #endDayByAgreement() {
+    this.log.push('everyone agrees — the day ends');
+    this.startNewDay();
+    return { dayEnded: true };
   }
 
   /**
@@ -768,6 +841,10 @@ export class Game {
         return this.exchange(move);
       case 'pass':
         return this.pass(move);
+      case 'proposeEnd':
+        return this.proposeDayEnd(move);
+      case 'voteEnd':
+        return this.voteDayEnd(move);
       case 'choose':
         return this.choosePendingLetter(move);
       default:
@@ -793,6 +870,7 @@ export class Game {
       lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
       startCell: { ...this.startCell },
       passed: [...this.passed],
+      dayEndVote: this.dayEndVote ? { ...this.dayEndVote, agreed: [...this.dayEndVote.agreed] } : null,
       bag: [...this.bag.pool].sort().join(''),
       log: [...this.log],
     };
@@ -812,6 +890,7 @@ export class Game {
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
     if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
     game.passed = new Set(data.passed ?? []);
+    game.dayEndVote = data.dayEndVote ? { ...data.dayEndVote, agreed: [...data.dayEndVote.agreed] } : null;
     game.log = [...(data.log ?? [])];
     return game;
   }

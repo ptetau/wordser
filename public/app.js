@@ -1,4 +1,5 @@
 import { Game, GameError, FRUIT_EMOJI, START_CELL } from './engine/game.js';
+const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd']);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
@@ -557,6 +558,17 @@ function renderActions() {
       };
       box.appendChild(ex);
       const bagEmpty = game.bag.pool.length === 0;
+      if (bagEmpty && !game.dayEndVote) {
+        const propose = document.createElement('button');
+        propose.id = 'propose-btn';
+        propose.style.cssText = 'display:block;width:100%;margin-top:6px';
+        propose.textContent = '🌙 Propose ending the day (2:00 to respond)';
+        propose.onclick = () =>
+          doMove({ type: 'proposeEnd' }, (r) =>
+            r.dayEnded ? 'the day ends — a new one begins! ★' : 'proposal sent — 2 minutes for others to respond',
+          );
+        box.appendChild(propose);
+      }
       const pass = document.createElement('button');
       pass.id = 'pass-btn';
       pass.style.cssText = 'display:block;width:100%;margin-top:6px';
@@ -626,7 +638,38 @@ function renderOnline() {
   }
 }
 
+function renderDayVote() {
+  const el = $('day-vote');
+  const v = game.dayEndVote;
+  if (!v || !game.players.length) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const me = online() ? session.playerId : currentPlayer;
+  const secs = Math.max(0, Math.ceil((v.expiresAt - Date.now()) / 1000));
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  const names = v.agreed.map((id) => game.players[id]?.name ?? '?').join(', ');
+  const iAgreed = me != null && v.agreed.includes(me);
+  el.innerHTML = `🌙 <b>${esc(game.players[v.proposer]?.name ?? '?')}</b> proposes ending the day · ⏳ ${clock}
+    <div class="muted" style="margin:2px 0">agreed: ${esc(names)}</div>
+    <div class="place-controls">
+      <button id="vote-no">❌ Keep playing</button>
+      ${iAgreed ? '' : '<button id="vote-yes" class="primary">✅ Agree</button>'}
+    </div>`;
+  $('vote-no').onclick = () =>
+    doMove({ type: 'voteEnd', agree: false }, () => 'the day continues — play on');
+  const yes = $('vote-yes');
+  if (yes) {
+    yes.onclick = () =>
+      doMove({ type: 'voteEnd', agree: true }, (r) =>
+        r.dayEnded ? 'everyone agrees — a new day begins! ★' : 'agreed — waiting for the others',
+      );
+  }
+}
+
 function refresh() {
+  renderDayVote();
   renderPlayers();
   renderRack();
   renderActions();
@@ -698,7 +741,7 @@ async function doMove(move, describe) {
     cancelModes();
     selected = null;
     status(describe(r), 'good');
-    if (move.type !== 'choose' && game.players.length > 1) {
+    if (!NON_TURN_MOVES.has(move.type) && game.players.length > 1) {
       // Hand the seat to the next human; CPU seats play themselves.
       for (let i = 1; i <= game.players.length; i++) {
         const next = (currentPlayer + i) % game.players.length;
@@ -869,6 +912,21 @@ async function sync(force = false) {
   }
 }
 setInterval(() => sync(), 3000);
+
+// Tick the day-end countdown; when it expires, the engine (or server on the
+// next poll) resolves it.
+setInterval(() => {
+  if (!game.dayEndVote) return;
+  if (Date.now() >= game.dayEndVote.expiresAt) {
+    if (online()) sync(true);
+    else if (game.tickClock()) {
+      status('nobody objected — a new day begins! ★', 'good');
+      refresh();
+      return;
+    }
+  }
+  renderDayVote();
+}, 1000);
 
 function askName() {
   const typed = ($('online-name').value || $('player-name').value).trim();

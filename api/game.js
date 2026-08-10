@@ -234,7 +234,7 @@ export async function handleAction(store, body) {
 
     if (action === 'state') {
       const game = await loadGame(record);
-      if (game.rolloverIfNeeded()) {
+      if (game.tickClock()) {
         const data = game.toJSON();
         record.game.players.forEach((p, i) => (data.players[i].token = p.token));
         const next = { id: record.id, seq: record.seq + 1, game: data };
@@ -253,7 +253,8 @@ export async function handleAction(store, body) {
     if (action === 'move') {
       const game = await loadGame(record);
       const result = game.apply({ ...body.move, playerId });
-      if (body.move?.type !== 'choose' && game.players.some((p) => p.isCpu)) {
+      const nonTurn = ['choose', 'proposeEnd', 'voteEnd'].includes(body.move?.type);
+      if (!nonTurn && game.players.some((p) => p.isCpu)) {
         runCpuTurns(game, await cpuWords());
       }
       const data = game.toJSON();

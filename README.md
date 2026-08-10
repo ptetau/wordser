@@ -63,6 +63,13 @@ npm test           # engine + API test suite (node --test, no dependencies)
   is empty and every player passes in a row, **the day ends early** —
   stars are awarded, a fresh bag arrives, racks are re-dealt, and the ★
   moves. A stuck CPU exchanges what the bag can cover, else passes.
+- **Proposing the end of the day.** Once the bag is empty, any player can
+  **🌙 propose ending the day** (it doesn't use a turn). A 2-minute timer
+  starts: other players can agree — unanimous agreement ends the day
+  immediately — or cancel the proposal outright, and playing letters
+  (placing, stealing, mutating, exchanging) also cancels it. If the timer
+  expires with no objection, the day ends. Passing leaves the proposal
+  running, and CPU players always agree.
 - **Stealing.** Replace any word on the board with your own word laid along
   the same line (it may be shorter or longer, and must overlap the word it
   replaces; every resulting word must be real). Old letters you reuse stay on
