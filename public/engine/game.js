@@ -57,6 +57,9 @@ const fail = (msg) => {
 
 const isLetter = (s) => typeof s === 'string' && /^[a-z]$/.test(s);
 
+/** Names collide if they match once case and stray spacing are ignored. */
+const normalizeName = (name) => String(name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
 function removeOne(rack, letter) {
   const i = rack.indexOf(letter);
   if (i === -1) return false;
@@ -94,11 +97,33 @@ export class Game {
     return new Date(this.now()).toISOString().slice(0, 10);
   }
 
+  /** True if someone in the game already answers to this name. */
+  nameTaken(name) {
+    const key = normalizeName(name);
+    return this.players.some((p) => normalizeName(p.name) === key);
+  }
+
+  /**
+   * Seat a player. Names are distinct (ignoring case and stray spacing) so
+   * the scoreboard, the log and "whose turn is it" all stay unambiguous.
+   */
   addPlayer(name) {
-    const player = { id: this.players.length, name, rack: [], score: 0, stars: 0 };
+    const clean = String(name ?? '').trim().replace(/\s+/g, ' ');
+    if (!clean) fail('a player name is required');
+    if (this.nameTaken(clean)) fail(`${clean} is already playing — pick another name`);
+    const player = { id: this.players.length, name: clean, rack: [], score: 0, stars: 0 };
     this.players.push(player);
     this.#refill(player);
     return player;
+  }
+
+  /** Seat a computer player under the first free "Robo N 🤖" name. */
+  addCpu() {
+    let n = 1;
+    while (this.nameTaken(`Robo ${n} 🤖`)) n++;
+    const cpu = this.addPlayer(`Robo ${n} 🤖`);
+    cpu.isCpu = true;
+    return cpu;
   }
 
   player(id) {

@@ -968,6 +968,8 @@ $('join-online').addEventListener('click', async () => {
     await goOnline(await Online.join(pendingJoinId, name));
   } catch (err) {
     showError(err);
+    // Most likely the name is taken — leave it selected for a quick retype.
+    $('online-name').select();
   }
 });
 
@@ -1329,6 +1331,11 @@ $('add-player-form').addEventListener('submit', (e) => {
   if (online()) return;
   const name = $('player-name').value.trim();
   if (!name) return;
+  if (game.nameTaken(name)) {
+    status(`${name} is already playing — pick another name`, 'error');
+    $('player-name').select();
+    return;
+  }
   rememberName(name);
   const p = game.addPlayer(name);
   $('player-name').value = '';
@@ -1350,9 +1357,7 @@ $('add-cpu').addEventListener('click', async () => {
     return;
   }
   cpuWordList ??= buildWordList(dictionary);
-  const n = game.players.filter((p) => p.isCpu).length + 1;
-  const p = game.addPlayer(`Robo ${n} 🤖`);
-  p.isCpu = true;
+  const p = game.addCpu();
   if (currentPlayer == null) currentPlayer = p.id;
   status(`${p.name} joined — it plays whenever it may`, 'good');
   if (game.players.length > 1) setTimeout(runCpuTurns, 400);

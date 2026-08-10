@@ -218,9 +218,7 @@ export async function handleAction(store, body) {
         return { status: 400, data: { error: 'this game is full' } };
       }
       const game = await loadGame(record);
-      const n = game.players.filter((p) => p.isCpu).length + 1;
-      const cpu = game.addPlayer(`Robo ${n} 🤖`);
-      cpu.isCpu = true;
+      const cpu = game.addCpu();
       game.log.push(`${cpu.name} joined the game`);
       runCpuTurns(game, await cpuWords());
       const data = game.toJSON();
