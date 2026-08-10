@@ -135,18 +135,39 @@ test('a word pays a player once a day, however often they make it', () => {
   assert.ok(ana.points > 0);
 
   g.players[1].rack = ['o'];
-  const ben = g.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' }); // COT
+  const ben = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) }); // COT
   assert.ok(ben.points > 0, 'CAT paid Ana, but COT is new to Ben');
 
   g.players[0].rack = ['a'];
-  const anaAgain = g.mutate({ playerId: 0, x: 1, y: 0, letter: 'a' }); // CAT again
+  const anaAgain = g.overwrite({ playerId: 0, tiles: tilesFor('cat', 0, 0) }); // CAT again
   assert.equal(anaAgain.points, 0);
   assert.equal(g.players[0].score, ana.points);
 
   g.players[1].rack = ['o'];
-  const benAgain = g.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' }); // COT again
+  const benAgain = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) }); // COT again
   assert.equal(benAgain.points, 0);
   assert.equal(g.players[1].score, ben.points);
+});
+
+test('a mutation is a free trade: no score, no turn taken', () => {
+  const g = makeGame(['cat', 'cot'], {
+    mode: 'turns',
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
+  });
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.equal(g.turnId, 1);
+
+  const r = g.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' });
+  assert.equal(r.points, 0);
+  assert.equal(r.got, 'a');
+  assert.equal(g.turnId, 1, 'the rotation has not moved on');
+  assert.equal(g.lastPlayerId, 0);
+
+  // Ben still owes the table a word, and can play the letter he just took.
+  assert.equal(g.isTheirTurn(1), true);
+  const played = g.overwrite({ playerId: 1, tiles: tilesFor('cat', 0, 0) });
+  assert.ok(played.points > 0);
+  assert.equal(g.turnId, 0);
 });
 
 test('the ledger is per player, and clears with the new day', () => {

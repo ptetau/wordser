@@ -23,8 +23,8 @@ Two ways to play:
 
 Tap a placed tile to steal or mutate its word — a steal is spelled right
 over the old word (its letters are yours to reuse; arrows slide your word
-along the line), and a mutation shows what the swap scores before you take
-it. Tapping an empty cell guesses which way the word should run from the
+along the line), and a mutation tells you which tile the swap puts in your
+rack, since that is all it pays: it costs no points and no turn. Tapping an empty cell guesses which way the word should run from the
 letters around it — a slot between two tiles, a neighbour on one side, or
 the roomier axis at a corner — and Space or the direction button overrides
 it. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
@@ -111,8 +111,8 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Proposing the end of the day.** Once the bag is empty, any player can
   **🌙 propose ending the day** (it doesn't use a turn). A 2-minute timer
   starts: other players can agree — unanimous agreement ends the day
-  immediately — or cancel the proposal outright, and playing letters
-  (placing, stealing, mutating, exchanging) also cancels it. If the timer
+  immediately — or cancel the proposal outright, and playing on (placing,
+  stealing, overwriting, exchanging) also cancels it. If the timer
   expires with no objection, the day ends. Passing leaves the proposal
   running, and CPU players always agree.
 - **Stealing.** Replace any word on the board with your own word laid along
@@ -126,7 +126,11 @@ npm test           # engine + API test suite (node --test, no dependencies)
   already fit are restated for free — COT over CAT spends only the O.
 - **Mutating.** Swap a single letter of a board word for one of yours if
   every word through that cell stays real. The ousted letter takes the place
-  of the tile you spent, so it always joins your rack.
+  of the tile you spent, so it always joins your rack. A mutation is a
+  **trade, not a play**: it scores nothing, and it doesn't use your turn —
+  the tile is the whole point of it. Fix your rack from the board, then play
+  the word it sets up. (It follows that a mutation neither breaks a run of
+  passes nor cancels a proposal to end the day; only playing does that.)
 - **Wildcard redefinition.** A blank on the board may be redefined to a
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.

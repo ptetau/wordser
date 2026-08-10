@@ -1,5 +1,7 @@
 import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX } from './engine/game.js';
-const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin']);
+// Moves that leave your turn where it is — a mutation among them: it trades a
+// tile for a tile and hands the seat to nobody.
+const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'mutate']);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
@@ -657,9 +659,10 @@ function renderActions() {
       // Second step: say what the swap does, and let them commit or back out.
       const preview = previewMutate(mutating.pick);
       const note = preview?.ok
-        ? `<span class="preview-ok">${preview.points} pts</span>`
+        ? `<span class="preview-ok">you take the ${gotName(preview.got)}</span>`
         : `<span class="preview-bad">${esc(preview?.message ?? 'not a legal swap')}</span>`;
       box.innerHTML = `<b>Mutate:</b> ${was} → ${mutating.pick.toUpperCase()} · ${note}
+        ${preview?.ok ? '<div class="muted" style="margin-top:2px">a free trade: no score, and you keep your turn</div>' : ''}
         <div class="place-controls">
           <button id="mutate-back">✕<span class="lbl">back</span></button>
           <button id="mutate-go" class="${preview?.ok ? 'primary' : ''}" ${preview?.ok ? '' : 'disabled'}>✓<span class="lbl">swap</span></button>
@@ -672,7 +675,9 @@ function renderActions() {
         applyMutate(mutating.pick, !game.players[currentPlayer].rack.includes(mutating.pick));
       return;
     }
-    box.innerHTML = `<b>Mutate</b> the “${esc(was)}” — swap in which letter? <button id="cancel-mutate" class="mini">✕</button>`;
+    box.innerHTML = `<b>Mutate</b> the “${esc(was)}” — swap in which letter?
+      <span class="muted">You take the ${esc(was)}; it costs no points and no turn.</span>
+      <button id="cancel-mutate" class="mini">✕</button>`;
     $('cancel-mutate').onclick = () => {
       mutating = null;
       refresh();
@@ -793,7 +798,7 @@ function renderActions() {
       mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir));
     }
   }
-  mkBtn('Mutate this letter', () => {
+  mkBtn('Mutate this letter — take it, free', () => {
     markUsed('mutate');
     mutating = { x: selected.x, y: selected.y };
     refresh();
@@ -1119,14 +1124,14 @@ function previewMove() {
   }
 }
 
-/** Dry-run a mutation so the swap can show its score before it is taken. */
+/** Dry-run a mutation so the swap can show what it leaves you holding. */
 function previewMutate(letter) {
   if (currentPlayer == null || !mutating) return null;
   const fromBlank = !game.players[currentPlayer].rack.includes(letter);
   try {
     const clone = Game.fromJSON(game.toJSON(), { dictionary });
     const r = clone.mutate({ playerId: currentPlayer, x: mutating.x, y: mutating.y, letter, fromBlank });
-    return { ok: true, points: r.points };
+    return { ok: true, got: r.got, words: r.words };
   } catch (err) {
     if (err instanceof GameError) return { ok: false, message: err.message };
     console.error(err);
@@ -1134,11 +1139,15 @@ function previewMutate(letter) {
   }
 }
 
+const gotName = (l) => (l === BLANK ? 'wildcard' : l.toUpperCase());
+
 function applyMutate(letter, fromBlank) {
   const cell = mutating;
   doMove(
     { type: 'mutate', x: cell.x, y: cell.y, letter, fromBlank },
-    (r) => `mutated to ${r.words.map((w) => w.toUpperCase()).join(' & ')} for ${r.points} points`,
+    (r) =>
+      `mutated to ${r.words.map((w) => w.toUpperCase()).join(' & ')} and took the ${gotName(r.got)}` +
+      ' — no score, and your turn is still yours',
   );
 }
 

@@ -16,7 +16,9 @@ import { AuthError, signUp, signIn, signOut, whoIs, rememberGame } from './accou
 const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
 /** Moves that don't consume a turn, so no CPU seat should answer them. */
-const NON_TURN_MOVES = ['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin'];
+// Moves that leave the turn where it is, so the robots don't get to answer
+// them — a mutation among them: it trades a tile for a tile, it isn't a play.
+const NON_TURN_MOVES = ['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'mutate'];
 
 let dictionaryPromise;
 const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());

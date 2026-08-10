@@ -44,8 +44,14 @@ test('any player can cancel, and playing letters cancels too', () => {
   assert.equal(g.day, 1);
   // Propose again; this time player 1 simply plays on — same effect.
   g.proposeDayEnd({ playerId: 0 });
-  g.players[1].rack = ['o'];
-  g.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' });
+  g.players[1].rack = ['o', 't'];
+  g.place({
+    playerId: 1,
+    tiles: [
+      { x: 0, y: 1, letter: 'o' },
+      { x: 0, y: 2, letter: 't' },
+    ],
+  });
   assert.equal(g.dayEndVote, null);
   assert.equal(g.day, 1);
   // Passing, though, leaves the proposal running.

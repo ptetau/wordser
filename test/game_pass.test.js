@@ -46,9 +46,9 @@ test('a real move between passes resets the streak', () => {
   g.bag.pool = [];
   g.pass({ playerId: 1 });
   g.players[0].rack = ['o'];
-  g.mutate({ playerId: 0, x: 1, y: 0, letter: 'o' }); // resets the pass streak
+  g.overwrite({ playerId: 0, tiles: tilesFor('cot', 0, 0) }); // resets the pass streak
   g.pass({ playerId: 1 });
-  assert.equal(g.day, 1); // only player 1 has passed since the mutate
+  assert.equal(g.day, 1); // only player 1 has passed since that word
   const r = g.pass({ playerId: 0 });
   assert.equal(r.dayEnded, true);
   assert.equal(g.day, 2);
