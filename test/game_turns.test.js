@@ -130,28 +130,34 @@ test('CPU seats are never skipped for idling', () => {
 // ------------------------------------------------- one payday per word
 
 test('a word pays a player once a day, however often they make it', () => {
-  const g = makeGame(['cat', 'cot'], {
-    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
-  });
-  const ana = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  // The permissive dictionary here lets the same word be laid down again a
+  // row lower, which is the only way to make it twice now that a word can't
+  // be rewritten in place.
+  const g = table(['Ana', 'Ben']);
+  g.setMode({ playerId: 0, mode: 'free' });
+  const { x, y } = g.startCell;
+  const lay = (id, row) => {
+    g.players[id].rack = ['c', 'a', 't'];
+    return g.place({ playerId: id, tiles: tilesFor('cat', x, row) });
+  };
+
+  const ana = lay(0, y);
   assert.ok(ana.points > 0);
+  assert.deepEqual(ana.repeats, []);
 
-  g.players[1].rack = ['o'];
-  const ben = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) }); // COT
-  assert.ok(ben.points > 0, 'CAT paid Ana, but COT is new to Ben');
+  const ben = lay(1, y + 1);
+  assert.ok(ben.points > 0, 'CAT paid Ana, but it is new to Ben');
+  assert.deepEqual(ben.repeats, []);
 
-  g.players[0].rack = ['a'];
-  const anaAgain = g.overwrite({ playerId: 0, tiles: tilesFor('cat', 0, 0) }); // CAT again
-  assert.equal(anaAgain.points, 0);
-  assert.equal(g.players[0].score, ana.points);
+  const anaAgain = lay(0, y + 2);
+  assert.deepEqual(anaAgain.repeats, ['cat'], 'she has been paid for CAT today');
+  assert.equal(g.players[0].scored.includes('cat'), true);
 
-  g.players[1].rack = ['o'];
-  const benAgain = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) }); // COT again
-  assert.equal(benAgain.points, 0);
-  assert.equal(g.players[1].score, ben.points);
+  const benAgain = lay(1, y + 3);
+  assert.deepEqual(benAgain.repeats, ['cat']);
 });
 
-test('a mutation is a free trade: no score, no turn taken', () => {
+test('a swap is a turn, and pays for itself', () => {
   const g = makeGame(['cat', 'cot'], {
     mode: 'turns',
     racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
@@ -159,17 +165,11 @@ test('a mutation is a free trade: no score, no turn taken', () => {
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assert.equal(g.turnId, 1);
 
-  const r = g.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' });
-  assert.equal(r.points, 0);
-  assert.equal(r.got, 'a');
-  assert.equal(g.turnId, 1, 'the rotation has not moved on');
-  assert.equal(g.lastPlayerId, 0);
-
-  // Ben still owes the table a word, and can play the letter he just took.
-  assert.equal(g.isTheirTurn(1), true);
-  const played = g.overwrite({ playerId: 1, tiles: tilesFor('cat', 0, 0) });
-  assert.ok(played.points > 0);
-  assert.equal(g.turnId, 0);
+  const r = g.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] });
+  assert.equal(r.points, 2); // the O is worth 1, plus 1x1 for the combination
+  assert.equal(g.turnId, 0, 'the rotation moved on');
+  assert.equal(g.lastPlayerId, 1);
+  assert.equal(g.isTheirTurn(1), false);
 });
 
 test('the ledger is per player, and clears with the new day', () => {
@@ -228,60 +228,20 @@ test('the star jumps once, not on every move after', () => {
 
 // ------------------------------------------------------------- overwriting
 
-test('you can write straight over letters, and pocket what you cover', () => {
-  const g = makeGame(['cat', 'dog', 'do', 'og'], {
-    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['d', 'o', 'g', 'e', 'e', 'e', 'e']],
-  });
-  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  const before = g.players[1].rack.length;
-  const r = g.overwrite({ playerId: 1, tiles: tilesFor('dog', 0, 0) });
-  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'dog');
-  assert.equal(r.taken, 3, 'the three covered letters should be pocketed');
-  assert.equal(g.players[1].rack.length, before - 3 + 3);
-  assert.match(g.log.join('\n'), /wrote over "DOG"/);
-});
-
-test('an overwrite must leave every word real, and must say something new', () => {
+test('a swap is how you take a word apart now — overwriting is gone', () => {
   const g = makeGame(['cat', 'cot'], {
-    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['c', 'a', 't', 'x', 'e', 'e', 'e']],
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
   });
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  // Writing CAT back over CAT changes nothing at all.
+  assert.equal(typeof g.overwrite, 'undefined');
+  assert.equal(typeof g.stealReplace, 'undefined');
+  assert.throws(() => g.apply({ type: 'overwrite', playerId: 1, tiles: [] }), /unknown move/);
+  assert.throws(() => g.apply({ type: 'steal', playerId: 1 }), /unknown move/);
+  // Placing on an occupied cell says where to go instead.
   assert.throws(
-    () => g.overwrite({ playerId: 1, tiles: tilesFor('cat', 0, 0) }),
-    /change nothing/,
+    () => g.place({ playerId: 1, tiles: [{ x: 1, y: 0, letter: 'o' }] }),
+    /swap that letter instead/,
   );
-  // A word the dictionary doesn't know: refused, and the board is untouched.
-  assert.throws(() => g.overwrite({ playerId: 1, tiles: tilesFor('cxt', 0, 0) }), /not a real word/);
-  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cat', 'a refused overwrite must not touch the board');
-
-  // Restating the letters that already fit is free: COT only spends the O.
-  g.players[1].rack = ['o'];
-  const r = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) });
-  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'cot');
-  assert.equal(r.taken, 1, 'only the A was prised off');
-});
-
-test('overwriting nothing is just a placement, and is refused as one', () => {
-  const g = makeGame(['cat', 'at'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
-  assert.throws(
-    () => g.overwrite({ playerId: 0, tiles: tilesFor('cat', 0, 0) }),
-    /writes over nothing/,
-  );
-});
-
-test('an overwrite balances the rack: a tile out, a tile in', () => {
-  const g = makeGame(['cat', 'dog', 'do', 'og'], {
-    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['d', 'o', 'g']],
-  });
-  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  const ben = g.players[1];
-  ben.rack = ['d', 'o', 'g', ...Array(9).fill('e')]; // at the 12-tile cap
-  const bagBefore = g.bag.pool.length;
-  const r = g.overwrite({ playerId: 1, tiles: tilesFor('dog', 0, 0) });
-  assert.equal(r.taken, 3);
-  assert.equal(ben.rack.length, 12, 'three spent, three picked up');
-  assert.equal(g.bag.pool.length, bagBefore, 'nothing needed to go back');
 });
 
 test('a rotation still never lets one player go twice running', () => {

@@ -32,9 +32,9 @@ test('toJSON/fromJSON round-trips a game in progress', () => {
   assert.deepEqual(g2.startCell, g.startCell);
 
   // The revived game keeps playing by the same rules.
-  const r = g2.mutate({ playerId: 1, x: 1, y: 0, letter: 'o' });
+  const r = g2.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] });
   assert.equal(g2.board.wordThrough(0, 0, 'h').word, 'cot');
-  assert.equal(r.points, 0); // a mutation is a trade, not a play
+  assert.equal(r.points, 2); // the O, plus one for the single-letter swap
   // The ousted tile was the wildcard.
   assert.ok(g2.players[1].rack.includes('*'));
 });
@@ -47,10 +47,17 @@ test('apply dispatches plain-data moves', () => {
     ],
   });
   g.apply({ type: 'place', playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  g.apply({ type: 'steal', playerId: 1, x: 0, y: 0, dir: 'h', word: 'dog' });
-  g.players[0].rack = ['a'];
-  g.apply({ type: 'mutate', playerId: 0, x: 1, y: 0, letter: 'a' });
-  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'dag');
+  g.players[1].rack = ['d', 'o', 'g'];
+  g.apply({
+    type: 'swap',
+    playerId: 1,
+    swaps: [
+      { x: 0, y: 0, letter: 'd' },
+      { x: 1, y: 0, letter: 'o' },
+      { x: 2, y: 0, letter: 'g' },
+    ],
+  });
+  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'dog');
   assert.throws(() => g.apply({ type: 'dance', playerId: 1 }));
 });
 

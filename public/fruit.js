@@ -25,6 +25,7 @@ export const FRUIT_HUE = {
   grape: '#9166dd',
   banana: '#f0a81f',
   kiwi: '#8dc63f',
+  mushroom: '#e2554b',
 };
 
 function ink(ctx, w) {
@@ -327,6 +328,55 @@ export function drawKiwi(ctx, cx, cy, r) {
   }
 }
 
+/**
+ * A fly agaric: red cap, white spots, pale stalk. The one fruit that does
+ * something to the board rather than to your rack, so it wants to look a
+ * little dangerous.
+ */
+export function drawMushroom(ctx, cx, cy, r) {
+  const lw = Math.max(1, r * 0.1);
+  const top = cy - r * 0.16;
+  ctx.beginPath(); // stalk
+  ctx.moveTo(cx - r * 0.26, top);
+  ctx.bezierCurveTo(cx - r * 0.3, cy + r * 0.6, cx - r * 0.2, cy + r * 0.82, cx, cy + r * 0.82);
+  ctx.bezierCurveTo(cx + r * 0.2, cy + r * 0.82, cx + r * 0.3, cy + r * 0.6, cx + r * 0.26, top);
+  ctx.closePath();
+  ctx.fillStyle = '#f2e6cd';
+  ctx.fill();
+  ink(ctx, lw);
+  ctx.beginPath(); // cap
+  ctx.moveTo(cx - r * 0.95, top);
+  ctx.bezierCurveTo(cx - r * 0.95, cy - r * 1.1, cx + r * 0.95, cy - r * 1.1, cx + r * 0.95, top);
+  ctx.closePath();
+  ctx.fillStyle = '#e2554b';
+  ctx.fill();
+  ink(ctx, lw);
+  if (r > 7) {
+    ctx.save();
+    ctx.beginPath(); // spots, clipped to the cap
+    ctx.moveTo(cx - r * 0.95, top);
+    ctx.bezierCurveTo(cx - r * 0.95, cy - r * 1.1, cx + r * 0.95, cy - r * 1.1, cx + r * 0.95, top);
+    ctx.closePath();
+    ctx.clip();
+    ctx.beginPath();
+    for (const [sx, sy, sr] of [[-0.5, -0.34, 0.2], [0.12, -0.52, 0.16], [0.56, -0.26, 0.14], [-0.06, -0.16, 0.12]]) {
+      ctx.moveTo(cx + (sx + sr) * r, cy + sy * r);
+      ctx.arc(cx + sx * r, cy + sy * r, sr * r, 0, TAU);
+    }
+    ctx.fillStyle = '#fbf3e2';
+    ctx.fill();
+    ctx.restore();
+  }
+  if (r > 9) {
+    ctx.beginPath(); // the gills' shadow under the cap
+    ctx.moveTo(cx - r * 0.9, top);
+    ctx.lineTo(cx + r * 0.9, top);
+    ctx.strokeStyle = 'rgba(35,16,7,0.45)';
+    ctx.lineWidth = r * 0.12;
+    ctx.stroke();
+  }
+}
+
 export const FRUIT_DRAW = {
   lemon: drawLemon,
   cherry: drawCherry,
@@ -334,6 +384,7 @@ export const FRUIT_DRAW = {
   grape: drawGrape,
   banana: drawBanana,
   kiwi: drawKiwi,
+  mushroom: drawMushroom,
 };
 
 // A dark dimple pressed into the felt with a wash of the fruit's own colour

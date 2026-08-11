@@ -103,6 +103,24 @@ test('placing seven or more tiles earns the bingo bonus', () => {
   });
   const r = g.place({ playerId: 0, tiles: tilesFor('abcdefg', 0, 0) });
   // DW start star under the A, and a DL under the E four along:
-  // (1+3+3+2+1+4+2 letters = 16, +1 for the doubled E) * 2, plus 50 bingo.
-  assert.equal(r.points, 17 * 2 + 50);
+  // (1+3+3+2+1+4+2 letters = 16, +1 for the doubled E) * 2 for the star,
+  // doubled again for laying out the whole rack, then 50 flat for the bingo.
+  assert.equal(r.points, 17 * 2 * 2 + 50);
+  assert.equal(r.emptied, true);
+  assert.match(g.log.join('\n'), /the whole tray, doubled/);
+});
+
+test('the tray bonus wants a full tray emptied, not just a tidy one', () => {
+  // Six tiles in hand, all six played: a clean sweep, but not a full rack.
+  const g = makeGame(['abcdef'], { racks: [['a', 'b', 'c', 'd', 'e', 'f'], []] });
+  const r = g.place({ playerId: 0, tiles: tilesFor('abcdef', 0, 0) });
+  assert.equal(r.emptied, false);
+  // 1+3+3+2+1+4 = 14, +1 for the DL under the E, doubled by the star.
+  assert.equal(r.points, 15 * 2, 'the star doubles it, nothing else');
+});
+
+test('a full rack that leaves something behind is not a sweep either', () => {
+  const g = makeGame(['abcdef'], { racks: [['a', 'b', 'c', 'd', 'e', 'f', 'z'], []] });
+  const r = g.place({ playerId: 0, tiles: tilesFor('abcdef', 0, 0) });
+  assert.equal(r.emptied, false, 'the Z is still in hand');
 });

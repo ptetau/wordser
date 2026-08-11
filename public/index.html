@@ -108,6 +108,7 @@
 
       <section id="cpu-section">
         <button id="add-cpu" style="width:100%">Add CPU player 🤖</button>
+        <button id="restart-game" hidden>↺ Start the game again</button>
         <div id="table-rules">
           <label id="mode-row" hidden>
             <span>Take strict turns</span>
@@ -139,6 +140,11 @@
       <div id="players"></div>
     </section>
 
+    <section id="leader-section" hidden>
+      <h2>Last five days</h2>
+      <div id="leader-table"></div>
+    </section>
+
     <section id="log-section">
       <h2>Log</h2>
       <div id="log"></div>
@@ -151,7 +157,8 @@
         <li>Tap an empty cell, tap or type letters, <b>✓</b> plays. <b>✕</b> cancel · <b>→</b> direction · <b>⌫</b> undo. Or Enter, Space, Backspace, Esc.</li>
         <li>The first word covers the <b>★</b>; after that every word must touch what's down.</li>
         <li>The arrow is guessed from the letters nearby, or points at the nearest word.</li>
-        <li>Nobody plays twice in a row. Games take turns by default; the admin can switch to free-for-all and skip an idler, and eight hours on your turn is skipped for you.</li>
+        <li>Nobody plays twice in a row. Games take turns by default; the admin can switch to free-for-all and skip an idler, and eight hours on your turn is skipped for you. A seat with no letters left passes itself.</li>
+        <li>When somebody joins a game already going, the table is offered a <b>fresh start</b> — and gets to choose who leads off.</li>
       </ul>
       <h4>Your letters</h4>
       <ul>
@@ -159,19 +166,18 @@
         <li><b>⇄ Exchange</b> swaps letters back into the bag; <b>⏭ Pass</b> gives up your turn.</li>
         <li>One 100-tile bag a day. Once it's dry, <b>🌙 propose ending the day</b> — two minutes for anyone to object. Everyone passing ends it too.</li>
       </ul>
-      <h4>Other people's words — tap a placed tile</h4>
+      <h4>Swapping — tap any letter on the board</h4>
       <ul>
-        <li><b>Steal</b>: spell your word over theirs along the same line; the leftovers are yours (12 in the rack, then the bag).</li>
-        <li><b>Overwrite</b>: spell straight across letters already down. Everything must stay real and say something new; what you cover is yours.</li>
-        <li><b>Mutate</b>: swap one board letter for one of yours and keep the old one. No score, no turn.</li>
+        <li>Put one of yours in its place and keep the one you prise off. Tap more letters, anywhere on the board, to swap several in the same move.</li>
+        <li>Every word you touch must still be real. It takes your turn, and pays the tiles you lay down plus <b>n for each of the n letters</b> — three at once is nine on top.</li>
         <li>A wildcard already down can be redefined to fit, so long as its words stay real.</li>
       </ul>
       <h4>Scoring</h4>
       <ul>
         <li><span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span> recur across the world but pay <b>once</b>, to the first letter to land there. Adding to a word pays face value.</li>
-        <li>A word pays you once a day. Seven tiles at once is +50.</li>
+        <li>A word pays you once a day. Seven tiles at once is +50, and laying out a <b>full rack in one word doubles it</b>.</li>
         <li>Cover a fruit with a letter to eat it. Ten are laid out within reach each day, and more appear where you play — what each one gives is for you to find out.</li>
-        <li>Scores reset daily — fresh bag, fresh racks, the ★ moves — and the day's winner keeps a ★.</li>
+        <li>Scores reset daily — fresh bag, fresh racks, the ★ moves to clean ground and everyone's view goes with it. The day's winner keeps a ★, and the last five days are listed under <i>Last five days</i>. Hover a name for their record.</li>
       </ul>
       <h4>Getting around</h4>
       <ul>

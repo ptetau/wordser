@@ -206,31 +206,31 @@ test('a lemon draws its two letters from the bag', () => {
   assert.equal(g.bag.pool.length, bagBefore - 9);
 });
 
-test('steal leftovers beyond the rack cap fall back into the bag', () => {
-  const g = makeGame(['cat', 'ct', 'at']);
+test('a swap trades tile for tile, even with a full rack', () => {
+  const g = makeGame(['cat', 'cot', 'bat']);
   rig(g, 1, ['c', 'a', 't', 'e', 'e', 'e', 'e']);
-  fill(g, 0, 12);
-  g.place({ playerId: 1, tiles: tilesFor('cat', 0, 0) });
-  const before = census(g);
-  const bagBefore = g.bag.pool.length;
-  const r = g.stealReplace({ playerId: 0, x: 0, y: 0, dir: 'h', word: 'ct', offset: 0 });
-  assert.equal(r.discarded > 0, true, 'expected leftovers with a full rack');
-  assert.equal(g.bag.pool.length, bagBefore + r.discarded);
-  assertConserved(g, before, 'steal discards');
-  assert.match(g.log.join('\n'), /back in the bag/);
-});
-
-test('a mutation swaps one tile for another, even with a full rack', () => {
-  const g = makeGame(['cat', 'cot']);
-  rig(g, 1, ['c', 'a', 't', 'e', 'e', 'e', 'e']);
-  rig(g, 0, ['o']);
+  rig(g, 0, ['o', 'b']);
   fill(g, 0, 12); // no spare room anywhere
   g.place({ playerId: 1, tiles: tilesFor('cat', 0, 0) });
   const before = census(g);
-  g.mutate({ playerId: 0, x: 1, y: 0, letter: 'o' });
+  g.swap({ playerId: 0, swaps: [{ x: 1, y: 0, letter: 'o' }] });
   assert.equal(g.players[0].rack.length, 12); // spent the O, took the A
   assert.equal(g.players[0].rack.includes('a'), true);
-  assertConserved(g, before, 'mutate');
+  assertConserved(g, before, 'swap');
+});
+
+test('a multi-swap conserves just as well', () => {
+  const g = makeGame(['cat', 'bat', 'bit']);
+  rig(g, 1, ['c', 'a', 't', 'e', 'e', 'e', 'e']);
+  rig(g, 0, ['b', 'i']);
+  g.place({ playerId: 1, tiles: tilesFor('cat', 0, 0) });
+  const before = census(g);
+  g.swap({
+    playerId: 0,
+    swaps: [{ x: 0, y: 0, letter: 'b' }, { x: 1, y: 0, letter: 'i' }],
+  });
+  assert.equal(g.board.wordThrough(0, 0, 'h').word, 'bit');
+  assertConserved(g, before, 'multi-swap');
 });
 
 test('exchanging is a straight swap through the bag', () => {
@@ -273,7 +273,7 @@ function fuzz(seed, turns) {
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
   const occupied = () => [...g.board.cells.keys()].map((k) => k.split(',').map(Number));
   const effective = (t) => (t.isBlank ? t.as : t.letter);
-  const tally = { place: 0, steal: 0, mutate: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
+  const tally = { place: 0, swap: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
 
   for (let turn = 0; turn < turns; turn++) {
     const p = pick(g.players);
@@ -315,32 +315,23 @@ function fuzz(seed, turns) {
           if (rng() < 0.35) g.fruits.set(Board.key(tiles[0].x, tiles[0].y), pick(FRUIT_TYPES));
           g.place({ playerId: p.id, tiles });
           tally.place++;
-        } else if (roll < 0.7) {
-          // Steal a word and re-spell it from its own letters, shuffled.
-          const [ox, oy] = pick(occupied());
-          const dir = rng() < 0.5 ? 'h' : 'v';
-          const w = g.board.wordThrough(ox, oy, dir);
-          if (!w || w.cells.length < 2) continue;
-          const letters = w.cells.map((c) => effective(c.tile));
-          for (let i = letters.length - 1; i > 0; i--) {
-            const j = Math.floor(rng() * (i + 1));
-            [letters[i], letters[j]] = [letters[j], letters[i]];
-          }
-          g.stealReplace({
-            playerId: p.id,
-            x: w.cells[0].x,
-            y: w.cells[0].y,
-            dir,
-            word: letters.join(''),
-            offset: 0,
-          });
-          tally.steal++;
         } else if (roll < 0.85) {
-          const [ox, oy] = pick(occupied());
-          const letter = pick(p.rack.filter((l) => l !== BLANK));
-          if (!letter) continue;
-          g.mutate({ playerId: p.id, x: ox, y: oy, letter });
-          tally.mutate++;
+          // Swap one to three board letters for rack letters at once.
+          const usable = p.rack.filter((l) => l !== BLANK);
+          if (!usable.length) continue;
+          const n = 1 + Math.floor(rng() * Math.min(3, usable.length));
+          const swaps = [];
+          const taken = new Set();
+          for (let i = 0; i < n; i++) {
+            const [ox, oy] = pick(occupied());
+            const k = Board.key(ox, oy);
+            if (taken.has(k)) continue;
+            taken.add(k);
+            swaps.push({ x: ox, y: oy, letter: usable[i] });
+          }
+          if (!swaps.length) continue;
+          g.swap({ playerId: p.id, swaps });
+          tally.swap += 1;
         } else if (roll < 0.93) {
           const n = 1 + Math.floor(rng() * Math.min(7, p.rack.length));
           g.exchange({ playerId: p.id, letters: p.rack.slice(0, n) });
@@ -368,7 +359,7 @@ function fuzz(seed, turns) {
 }
 
 test('thousands of random moves never mint or destroy a letter', () => {
-  let seen = { place: 0, steal: 0, mutate: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
+  let seen = { place: 0, swap: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
   for (let seed = 1; seed <= 8; seed++) {
     const { game, tally } = fuzz(seed, 600);
     if (!tally.newDay) assert.equal(total(game), SET_SIZE, `seed ${seed} ended off a full set`);
@@ -377,8 +368,7 @@ test('thousands of random moves never mint or destroy a letter', () => {
   // The run is only meaningful if it actually exercised every path that
   // moves letters around, so hold it to that.
   assert.ok(seen.place > 200, `too few placements: ${seen.place}`);
-  assert.ok(seen.steal > 200, `too few steals: ${seen.steal}`);
-  assert.ok(seen.mutate > 100, `too few mutations: ${seen.mutate}`);
+  assert.ok(seen.swap > 200, `too few swaps: ${seen.swap}`);
   assert.ok(seen.exchange > 50, `too few exchanges: ${seen.exchange}`);
   assert.ok(seen.choose > 5, `too few cherry choices: ${seen.choose}`);
   assert.ok(seen.fruit > 100, `too few fruits eaten: ${seen.fruit}`);

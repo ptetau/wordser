@@ -1,8 +1,8 @@
 # wordser
 
-N-player scrabble on a looping 448×448 world. Letters can be stolen, words
-can be rewritten under your opponents' feet, bonus fruits dot the plain,
-and every day crowns a winner.
+N-player scrabble on a looping 448×448 world. Words can be rewritten under
+your opponents' feet a letter at a time, bonus fruits dot the plain, and
+every day crowns a winner.
 
 ## Play it
 
@@ -29,10 +29,9 @@ Turn on 🔔 *Tell me when it's my turn* and the browser taps you on the
 shoulder when a game is yours to move — including games in other tabs, which
 are polled once a minute in the background.
 
-Tap a placed tile to steal or mutate its word — a steal is spelled right
-over the old word (its letters are yours to reuse; arrows slide your word
-along the line), and a mutation tells you which tile the swap puts in your
-rack, since that is all it pays: it costs no points and no turn. Tapping an empty cell guesses which way the word should run from the
+Tap any letter on the board to swap one of yours in and keep the one you
+prise off; tap more letters, anywhere, to trade several in the same move,
+and the panel prices the lot as you build it. Tapping an empty cell guesses which way the word should run from the
 letters around it — a slot between two tiles, a neighbour on one side, or
 the roomier axis at a corner — and when nothing is touching it points at
 the nearest word instead, along the axis that word lies on, so spelling and
@@ -52,8 +51,8 @@ look.
 Once the first word is down, the setup controls (adding players, the share
 link, ending the day) fold away under *Players & setup* so the panel is
 mostly the game; open the fold any time and it stays open. The arrow keys drive a board cursor (the viewport follows):
-type to start a word at the cursor, press Enter on a tile to steal/mutate
-it, and `+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
+type to start a word at the cursor, press Enter on a tile to swap it, and
+`+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
 drag a tile into any of them, including the empty ones, and it stays where
 you put it — slots are addresses, so two tiles trade places rather than the
 row shuffling along. Laying out `C _ T` with a hole in the middle is how you
@@ -123,14 +122,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
   words must be real. Racks refill to 7 tiles from a real scrabble bag —
   **one standard 100-tile set per day**, drawn without replacement. When
-  the day's bag runs dry there are no more draws until tomorrow (steals
-  and mutations still work — board letters become the economy). Placing
-  7+ tiles earns a 50-point bingo.
+  the day's bag runs dry there are no more draws until tomorrow (swapping
+  still works — board letters become the economy). Placing 7+ tiles earns a
+  50-point bingo.
 - **Every letter comes from the bag.** Nothing in the game mints a tile:
   fruits draw theirs from the day's set like everything else, and letters
-  that leave a rack without reaching the board — steal leftovers, cherry
-  offers you turn down, the rack of a player who is removed — fall back
-  into the bag for someone else to draw. Within a day the hundred tiles
+  that leave a rack without reaching the board — cherry offers you turn
+  down, the rack of a player who is removed — fall back into the bag for
+  someone else to draw. Within a day the hundred tiles
   are only ever moved between bag, racks and board. A new day is the one
   exception: it opens a brand-new set, and only the letters already on the
   board carry over.
@@ -144,25 +143,21 @@ npm test           # engine + API test suite (node --test, no dependencies)
   **🌙 propose ending the day** (it doesn't use a turn). A 2-minute timer
   starts: other players can agree — unanimous agreement ends the day
   immediately — or cancel the proposal outright, and playing on (placing,
-  stealing, overwriting, exchanging) also cancels it. If the timer
+  swapping, exchanging) also cancels it. If the timer
   expires with no objection, the day ends. Passing leaves the proposal
   running, and CPU players always agree.
-- **Stealing.** Replace any word on the board with your own word laid along
-  the same line (it may be shorter or longer, and must overlap the word it
-  replaces; every resulting word must be real). Old letters you reuse stay on
-  the board; the leftovers are stolen into your rack up to a maximum of
-  **12 rack tiles — anything over that drops back into the bag**.
-- **Overwriting.** Lay a word straight across letters already down. Every
-  word it touches must still be real, it has to say something new, and the
-  letters you cover are prised off the board and are yours. Letters that
-  already fit are restated for free — COT over CAT spends only the O.
-- **Mutating.** Swap a single letter of a board word for one of yours if
-  every word through that cell stays real. The ousted letter takes the place
-  of the tile you spent, so it always joins your rack. A mutation is a
-  **trade, not a play**: it scores nothing, and it doesn't use your turn —
-  the tile is the whole point of it. Fix your rack from the board, then play
-  the word it sets up. (It follows that a mutation neither breaks a run of
-  passes nor cancels a proposal to end the day; only playing does that.)
+- **Swapping.** The one way to change what is already down. Put a letter of
+  yours on any board cell and keep the one you prise off; do it to as many
+  cells as you like, across as many words as you like, in a single move.
+  Every word the changes touch must still be real. It takes your turn and
+  pays the face value of the tiles you laid plus **n points for each of the
+  n letters swapped** — one letter earns 1, three earn 9 — so reaching
+  across several words at once is worth far more than three separate pokes.
+  Each letter you take replaces the tile you spent, so your rack keeps its
+  size. (Stealing and overwriting are gone; this replaced them both.)
+- **A swept tray.** Play every tile of a full rack in one word and the whole
+  word is **doubled**, on top of the 50-point bingo. It wants a full tray:
+  arrive with seven or more and leave with nothing.
 - **Wildcard redefinition.** A blank on the board may be redefined to a
   different letter to fit the word you are playing, provided every word
   through it stays real. Blanks always score 0.
@@ -172,22 +167,28 @@ npm test           # engine + API test suite (node --test, no dependencies)
   one takes a move or two of deliberate play rather than luck. Yesterday's
   leftovers are cleared away with yesterday's bag. Most moves spawn another
   near where you just played (never bunched together, twelve at most).
-  Cover one with a newly placed letter to eat it: 🍋 lemon feeds you two
-  extra letters, 🌶️ chilli hands you a high-scoring letter (J/Q/X/Z, or the
-  best the bag has left), 🍒 cherry lets you keep one letter from a choice
-  of seven (choosing doesn't use your turn), 🍇 grape is worth 10 bonus
-  points, 🍌 banana deals you a completely fresh rack, and 🥝 kiwi hands you
-  a wildcard. Every one of those letters is drawn from the day's bag — a
-  fruit whose letter has run out simply fizzles, and the six letters you
-  turn down from a cherry go straight back in. Nothing announces what has
-  appeared: the board shows a fruit, and what it gives is for the player who
-  eats it to find out.
+  Cover one with a newly placed letter to eat it. **What each one does is
+  deliberately undocumented** — six of them help your rack or your score in
+  different ways, one of them (🍄) does something to the board itself, and
+  finding out is the fun. Whatever they hand over is drawn from the day's
+  bag like every other tile, so a fruit can come up empty once the bag runs
+  low. Nothing announces what has appeared, either: the board shows a fruit,
+  and the rest is for whoever gets there first.
 - **Running the table.** Whoever starts the game is its **admin 👑** (never
   a CPU seat — the first human to join takes it instead). The admin can
   **remove** any other player, whose letters go back into the day's bag and
   whose seat closes up behind them, and can **hand the admin rights** to
   another human. Handing over is one-way: only the new admin can give them
   back.
+- **Nobody waits on an empty rack.** A seat whose letters have run out is
+  dealt in again if the bag can; if it can't, they pass automatically and
+  play carries on rather than stalling on a move that cannot come. When
+  nobody can play, the day ends there.
+- **A fresh start for a latecomer.** When somebody joins a game already
+  under way, the table is offered a restart: a bare board, new racks, the
+  record wiped, and the admin naming who leads off. It is only ever an
+  offer, and only the admin's to take (the button lives under *Players &
+  setup* too).
 - **A new mark when the bag runs dry.** The moment the day's last letter is
   drawn, the ★ jumps at least twenty cells clear of where it was.
 - **Accounts.** Sign in under **👤** with a name and a passphrase and your
@@ -214,9 +215,13 @@ npm test           # engine + API test suite (node --test, no dependencies)
   tab title carries a ● as well, for anyone who would rather not grant the
   permission.
 - **Daily stars.** Scores reset every day (UTC), everyone is dealt a fresh
-  rack from a new bag, the ★ start cell wanders to a different double-word
-  star, and a fresh crop of fruit is laid out within reach. The player(s)
-  with the top score of the day get a permanent ★ by their name.
+  rack from a new bag and a fresh crop of fruit is laid out within reach.
+  The ★ moves to the nearest double-word star with a clean patch around it
+  — within walking distance of yesterday's words but not on top of them —
+  and every player's view is taken there once, so nobody has to go looking.
+  The player(s) with the top score of the day get a permanent ★ by their
+  name, the last five days are listed in the panel, and hovering a name
+  shows how many days they have won and what they average.
 
 ## Dictionary
 

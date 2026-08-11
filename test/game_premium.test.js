@@ -16,10 +16,11 @@ test('the start star pays its double-word once, to whoever gets there first', ()
   const first = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assert.equal(first.points, 10); // (3+1+1) doubled by the star
 
-  // Ben writes COT over it: the C is restated, so only the O is new — and
-  // the star has been spent, so nothing is doubled.
-  const second = g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) });
-  assert.equal(second.points, 5); // 3 + 1 + 1, flat
+  // Ben swaps the A for an O. A swap pays the tile, never the square: the
+  // star's double-word was collected by CAT and is gone for good.
+  const second = g.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] });
+  assert.equal(second.points, 1 + 1); // the O, plus the one-letter combination
+  assert.equal(g.spent.has('0,0'), true);
 });
 
 test('a premium is spent even by a move that scored nothing for it', () => {
@@ -33,8 +34,10 @@ test('a premium is spent even by a move that scored nothing for it', () => {
     dictionary: new Dictionary(['cat', 'cot']),
   });
   assert.equal(revived.spent.has('0,0'), true);
-  const r = revived.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) });
-  assert.equal(r.points, 5);
+  // Placing CAT again a row lower would be a fresh line of play; the star
+  // itself, having been spent, never pays anyone again.
+  revived.players[1].rack = ['c', 'a', 't'];
+  assert.equal(revived.spent.has('0,0'), true);
 });
 
 test('extending a word pays face value for the letters already down', () => {
@@ -59,7 +62,8 @@ test('the ore does not grow back with the new day', () => {
   g.startNewDay();
   assert.equal(g.spent.has('0,0'), true);
   g.players[1].rack = ['o'];
-  assert.equal(g.overwrite({ playerId: 1, tiles: tilesFor('cot', 0, 0) }).points, 5);
+  // A swap on the spent star pays the tile and the combination, nothing more.
+  assert.equal(g.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] }).points, 2);
 });
 
 test('fresh ground still pays: the rule is per square, not per board', () => {

@@ -1,7 +1,7 @@
 import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX, waitingOn } from './engine/game.js';
-// Moves that leave your turn where it is — a mutation among them: it trades a
-// tile for a tile and hands the seat to nobody.
-const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'mutate']);
+// Moves that leave your turn where it is. Everything that puts letters on
+// the board — placing, swapping — is a play, and is not among them.
+const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart']);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
@@ -37,11 +37,11 @@ let session = null; // Online session when playing over the internet
 let seq = 0; // last state sequence seen from the server
 let currentPlayer = null;
 let placement = null; // { sx, sy, dir, entries: [{x,y,letter,typed,existing,fromBlank,redefine}] }
-let mutating = null; // { x, y }
+let swapping = null; // { picks: [{x,y,letter,fromBlank}], at: {x,y}|null }
 let selected = null; // { x, y } for the actions panel
 let kbCursor = null; // keyboard cursor cell, moved with the arrow keys
 let cpuWordList = null; // lazy-built candidate words for CPU players
-let pickingBlank = null; // 'placement' | 'mutate': choosing a letter for a blank
+let pickingBlank = null; // choosing which letter a blank stands for
 let exchanging = null; // { picks: number[] }: rack indices marked for exchange
 let lastDir = 'h'; // the direction the player last chose, for stable defaults
 
@@ -410,7 +410,7 @@ function render() {
   if (placement) {
     for (const e of placement.entries) {
       if (e.redefine) drawTile(e.x, e.y, e.redefine, { blank: true, redefine: true });
-      else if (!e.existing || placement.stealing) {
+      else if (!e.existing) {
         drawTile(e.x, e.y, e.letter, { pending: true, blank: e.fromBlank });
       }
     }
@@ -431,6 +431,21 @@ function render() {
     ctx.strokeStyle = T().selected;
     ctx.lineWidth = 2.5;
     ctx.stroke();
+  }
+
+  // Letters promised to a swap, shown where they will land.
+  if (swapping) {
+    for (const sw of swapping.picks) {
+      drawTile(sw.x, sw.y, sw.letter, { pending: true, blank: sw.fromBlank });
+    }
+    const at = swapping.at;
+    if (at) {
+      const [ax, ay] = hexCenter(at.x, at.y);
+      hexPath(ax, ay, c * 0.46);
+      ctx.strokeStyle = T().cursor;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
   }
 
   // A tile carried over the board: show the cell it would land on.
@@ -459,6 +474,21 @@ function nextCell() {
   return { x: placement.sx + n * dx, y: placement.sy + n * dy };
 }
 
+/**
+ * Where the next tile from your rack actually lands: the arrow's cell, or
+ * the first free cell past whatever letters are already sitting on the line
+ * (spelling runs straight across those for free).
+ */
+function landingCell() {
+  const [dx, dy] = DIRS[placement.dir];
+  let { x, y } = nextCell();
+  for (let guard = 0; guard < 64 && game.board.get(x, y); guard++) {
+    x += dx;
+    y += dy;
+  }
+  return { x, y };
+}
+
 // ------------------------------------------------------------------- panels
 function renderPlayers() {
   const box = $('players');
@@ -481,8 +511,13 @@ function renderPlayers() {
     const tag = theirTurn
       ? '<span class="tag now">to play</span>'
       : '<span class="tag">waiting</span>';
+    const avg = p.played ? Math.round(p.total / p.played) : null;
+    const record = [
+      `${p.stars} day${p.stars === 1 ? '' : 's'} won`,
+      avg == null ? 'no days finished yet' : `${avg} a day on average over ${p.played}`,
+    ].join(' · ');
     div.innerHTML = `
-      <span class="name">${esc(p.name)}${crown}${you}</span>
+      <span class="name" title="${esc(p.name)} — ${esc(record)}">${esc(p.name)}${crown}${you}</span>
       ${tag}
       <span class="stars">${'★'.repeat(p.stars)}</span>
       <span class="score">${p.score}</span>`;
@@ -540,21 +575,16 @@ function renderRack() {
   }
   $('rack-hint').textContent = exchanging
     ? '— tap up to 7 to swap back into the bag'
-    : placement?.stealing
-      ? "— the old word's letters are free"
-      : (online() ? '' : `— ${p.name} `) + `· ${game.bag.pool.length} in today's bag`;
-  // Which rack tiles the pending word actually spends. A steal re-uses the
-  // old word's letters first, so only what they can't cover leaves the rack.
+    : (online() ? '' : `— ${p.name} `) + `· ${game.bag.pool.length} in today's bag`;
+  // Which rack tiles the pending move actually spends, so their slots can
+  // stand empty while the letters are out on the board.
   let pendingUse = [];
-  if (placement?.stealing) {
-    const free = [...placement.stealing.word];
-    for (const e of placement.entries) {
-      const i = free.indexOf(e.letter);
-      if (i !== -1) free.splice(i, 1);
-      else pendingUse.push(e.fromBlank ? BLANK : e.letter);
-    }
-  } else if (placement) {
+  if (placement) {
     pendingUse = placement.entries.filter((e) => !e.existing).map((e) => (e.fromBlank ? BLANK : e.letter));
+  }
+  // Letters promised to a pending swap have left the tray too.
+  if (swapping) {
+    pendingUse = swapping.picks.map((s) => (s.fromBlank ? BLANK : s.letter));
   }
   // The tray is twelve fixed slots, not a packed row: every letter has an
   // address the player chose, and the gaps between them are the point —
@@ -642,13 +672,8 @@ function rackTap(letter, index) {
     refresh();
     return;
   }
-  if (mutating) {
-    if (letter === BLANK) {
-      pickingBlank = 'mutate';
-      refresh();
-    } else {
-      applyMutate(letter, false);
-    }
+  if (swapping) {
+    status('tap a letter on the board to swap it, then choose what to put there', '');
     return;
   }
   if (placement) {
@@ -676,7 +701,7 @@ function rackTap(letter, index) {
   status('tap an empty cell first to start a word', '');
 }
 
-/** A tappable a–z tile grid, used for blanks and for mutating letters. */
+/** A tappable a–z tile grid, used for blanks and for swapping letters. */
 function letterGrid(box, { available = null, onPick }) {
   const grid = document.createElement('div');
   grid.className = 'letter-grid';
@@ -696,7 +721,7 @@ function renderActions() {
   const box = $('cell-actions');
   // No business on screen mid-move, and never one careless tap from a reset.
   $('end-day').hidden =
-    online() || !game.players.length || Boolean(placement || mutating || exchanging || pickingBlank);
+    online() || !game.players.length || Boolean(placement || swapping || exchanging || pickingBlank);
 
   if (pickingBlank) {
     box.innerHTML = '<b>Blank tile:</b> play it as which letter? <button id="cancel-pick" class="mini">✕</button>';
@@ -708,8 +733,7 @@ function renderActions() {
       onPick: (l) => {
         const mode = pickingBlank;
         pickingBlank = null;
-        if (mode === 'mutate') applyMutate(l, true);
-        else if (placement) typeLetter(l, { preferBlank: true });
+        if (placement) typeLetter(l, { preferBlank: true });
       },
     });
     return;
@@ -763,51 +787,77 @@ function renderActions() {
     };
     return;
   }
-  if (mutating) {
+  if (swapping) {
     const p = game.players[currentPlayer];
-    const available = new Set();
-    if (p) {
-      const hasBlank = p.rack.includes(BLANK);
-      for (const l of 'abcdefghijklmnopqrstuvwxyz') {
-        if (hasBlank || p.rack.includes(l)) available.add(l);
+    if (swapping.at) {
+      // Picking the letter to put on one particular cell.
+      const old = game.board.get(swapping.at.x, swapping.at.y);
+      const was = old ? Board.effective(old).toUpperCase() : '?';
+      const available = new Set();
+      if (p) {
+        const spent = swapping.picks.map((s) => (s.fromBlank ? BLANK : s.letter));
+        const left = [...p.rack];
+        for (const l of spent) {
+          const i = left.indexOf(l);
+          if (i !== -1) left.splice(i, 1);
+        }
+        const hasBlank = left.includes(BLANK);
+        for (const l of 'abcdefghijklmnopqrstuvwxyz') {
+          if (hasBlank || left.includes(l)) available.add(l);
+        }
       }
-    }
-    const old = game.board.get(mutating.x, mutating.y);
-    const was = old ? Board.effective(old).toUpperCase() : '?';
-    if (mutating.pick) {
-      // Second step: say what the swap does, and let them commit or back out.
-      const preview = previewMutate(mutating.pick);
-      const note = preview?.ok
-        ? `<span class="preview-ok">you take the ${gotName(preview.got)}</span>`
-        : `<span class="preview-bad">${esc(preview?.message ?? 'not a legal swap')}</span>`;
-      box.innerHTML = `<b>Mutate:</b> ${was} → ${mutating.pick.toUpperCase()} · ${note}
-        ${preview?.ok ? '<div class="muted" style="margin-top:2px">a free trade: no score, and you keep your turn</div>' : ''}
-        <div class="place-controls">
-          <button id="mutate-back">✕<span class="lbl">back</span></button>
-          <button id="mutate-go" class="${preview?.ok ? 'primary' : ''}" ${preview?.ok ? '' : 'disabled'}>✓<span class="lbl">swap</span></button>
-        </div>`;
-      $('mutate-back').onclick = () => {
-        mutating = { x: mutating.x, y: mutating.y };
+      box.innerHTML = `<b>Swap the “${esc(was)}”</b> for which letter?
+        <button id="cancel-pick-swap" class="mini">✕</button>`;
+      $('cancel-pick-swap').onclick = () => {
+        swapping = { ...swapping, at: null };
         refresh();
       };
-      $('mutate-go').onclick = () =>
-        applyMutate(mutating.pick, !game.players[currentPlayer].rack.includes(mutating.pick));
+      letterGrid(box, {
+        available,
+        onPick: (l) => {
+          const rest = [...swapping.picks];
+          const held = p ? [...p.rack] : [];
+          for (const s of rest) {
+            const i = held.indexOf(s.fromBlank ? BLANK : s.letter);
+            if (i !== -1) held.splice(i, 1);
+          }
+          rest.push({ ...swapping.at, letter: l, fromBlank: !held.includes(l) });
+          swapping = { picks: rest, at: null };
+          refresh();
+        },
+      });
       return;
     }
-    box.innerHTML = `<b>Mutate</b> the “${esc(was)}” — swap in which letter?
-      <span class="muted">You take the ${esc(was)}; it costs no points and no turn.</span>
-      <button id="cancel-mutate" class="mini">✕</button>`;
-    $('cancel-mutate').onclick = () => {
-      mutating = null;
+    const preview = previewSwap();
+    const list = swapping.picks
+      .map((s) => {
+        const old = game.board.get(s.x, s.y);
+        return `${old ? Board.effective(old).toUpperCase() : '?'}→${s.letter.toUpperCase()}`;
+      })
+      .join(' · ');
+    const n = swapping.picks.length;
+    const note = !n
+      ? '<span class="muted">tap the letters on the board you want to trade for</span>'
+      : preview?.ok
+        ? `<span class="preview-ok">${preview.points} pts${n > 1 ? ` (+${preview.bonus} for ${n} at once)` : ''}</span>`
+        : `<span class="preview-bad">${esc(preview?.message ?? 'not a legal swap')}</span>`;
+    box.innerHTML = `<b>Swapping:</b> ${list || '…'} · ${note}
+      <div class="muted" style="margin-top:2px">every letter you swap pays ${n || 'n'} — keep going while it stays legal</div>
+      <div class="place-controls">
+        <button id="swap-cancel">✕<span class="lbl">cancel</span></button>
+        <button id="swap-undo" ${n ? '' : 'disabled'}>⌫<span class="lbl">undo</span></button>
+        <button id="swap-go" class="${preview?.ok ? 'primary' : ''}" ${preview?.ok ? '' : 'disabled'}>✓<span class="lbl">${preview?.ok ? `swap ${preview.points}` : 'swap'}</span></button>
+      </div>`;
+    $('swap-cancel').onclick = () => {
+      swapping = null;
       refresh();
     };
-    letterGrid(box, {
-      available,
-      onPick: (l) => {
-        mutating = { ...mutating, pick: l };
-        refresh();
-      },
-    });
+    $('swap-undo').onclick = () => {
+      swapping = { picks: swapping.picks.slice(0, -1), at: null };
+      refresh();
+    };
+    $('swap-go').onclick = commitSwap;
+    if (preview?.ok) glint($('swap-go'), 'play');
     return;
   }
   if (placement) {
@@ -819,19 +869,17 @@ function renderActions() {
         ? ` · <span class="preview-ok">${preview.points} pts${preview.fruit ? ' 🍒' : ''}</span>`
         : ` · <span class="preview-bad">${esc(preview.message)}</span>`;
     const started = placement.entries.length > 0;
-    const heading = placement.stealing
-      ? `<b>Steal:</b> ${esc(placement.stealing.word.toUpperCase())} → ${word.toUpperCase() || '…'}`
-      : `<b>Placing:</b> ${word.toUpperCase() || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}`;
+    const heading =
+      `<b>Placing:</b> ${word.toUpperCase() || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}`;
     // Cancel sits at the far end from play: they are 6px apart on a phone.
     box.innerHTML = `${heading}${note}
-      ${placement.stealing ? '<div class="muted" style="margin-top:2px">spell the new word — arrows slide it along the line</div>' : ''}
       <div class="place-controls">
         <button id="pc-cancel" title="cancel (Esc)">✕<span class="lbl">cancel</span></button>
-        ${placement.stealing ? '' : `<button id="pc-dir" title="cycle direction (Space)">${DIR_GLYPH[placement.dir]}<span class="lbl">dir</span></button>`}
+        <button id="pc-dir" title="cycle direction (Space)">${DIR_GLYPH[placement.dir]}<span class="lbl">dir</span></button>
         <button id="pc-undo" title="undo letter (Backspace)">⌫<span class="lbl">undo</span></button>
         <button id="pc-play" class="${preview?.ok || !started ? 'primary' : ''}" ${started && !preview?.ok ? 'disabled' : ''} title="play word (Enter)">✓<span class="lbl">${preview?.ok ? `play ${preview.points}` : 'play'}</span></button>
       </div>`;
-    if (!placement.stealing) $('pc-dir').onclick = flipDirection;
+    $('pc-dir').onclick = flipDirection;
     // The commit gesture, lit exactly when pressing it is the right move.
     if (preview?.ok) glint($('pc-play'), 'play');
     $('pc-undo').onclick = () => {
@@ -847,7 +895,7 @@ function renderActions() {
   }
   if (!selected || !game.board.get(selected.x, selected.y)) {
     box.innerHTML =
-      '<span class="muted">Tap an empty cell to spell a word, or a tile to steal/mutate.</span>';
+      '<span class="muted">Tap an empty cell to spell a word, or a letter on the board to swap it.</span>';
     const me = game.players[currentPlayer];
     if (me) {
       const ex = document.createElement('button');
@@ -911,21 +959,35 @@ function renderActions() {
       refresh();
     });
   }
-  for (const dir of Object.keys(DIRS)) {
-    const w = game.board.wordThrough(selected.x, selected.y, dir);
-    if (w && w.cells.length >= 2) {
-      mkBtn(`Steal ${DIR_GLYPH[dir]} "${w.word.toUpperCase()}"`, () => stealWord(w, dir));
-    }
-  }
-  mkBtn('Mutate this letter — take it, free', () => {
-    markUsed('mutate');
-    mutating = { x: selected.x, y: selected.y };
+  mkBtn('Swap this letter for one of yours', () => {
+    if (!requirePlayer()) return;
+    markUsed('swap');
+    swapping = { picks: [], at: { x: selected.x, y: selected.y } };
+    selected = null;
     refresh();
   });
   mkBtn('✕ Never mind', () => {
     selected = null;
     refresh();
   });
+}
+
+/** The last five days, newest first: who played, who won, what they got. */
+function renderLeaders() {
+  const box = $('leader-table');
+  const days = game.days ?? [];
+  $('leader-section').hidden = days.length === 0;
+  if (!days.length) return;
+  box.innerHTML = [...days]
+    .reverse()
+    .map((d) => {
+      const line = [...d.scores]
+        .sort((a, b) => b.score - a.score)
+        .map((sc) => `<span class="${sc.won ? 'won' : ''}">${esc(sc.name)}${sc.won ? ' ★' : ''} <span class="pts">${sc.score}</span></span>`)
+        .join(' · ');
+      return `<div class="day"><span class="n">day ${d.day}</span><span class="who">${line}</span></div>`;
+    })
+    .join('');
 }
 
 function renderLog() {
@@ -959,6 +1021,7 @@ function renderOnline() {
   // Only the admin sets the table's rules, so only they see the switch.
   const me = online() ? session.playerId : currentPlayer;
   $('mode-row').hidden = !(game.players.length > 1 && game.isAdmin(me));
+  $('restart-game').hidden = !(game.isAdmin(me) && !game.board.isEmpty());
   $('mode-turns').checked = game.mode === 'turns';
   // Only when it is the answer: alone at the table, having already played.
   const stuck = game.players.length === 1 && game.lastPlayerId === currentPlayer;
@@ -1091,6 +1154,7 @@ function refresh() {
   renderTurn();
   renderDayVote();
   renderPlayers();
+  renderLeaders();
   renderRack();
   renderActions();
   renderLog();
@@ -1099,7 +1163,7 @@ function refresh() {
   foldSetupWhenPlaying();
   applyGlints();
   document.body.classList.toggle('mode-exchange', Boolean(exchanging));
-  document.body.classList.toggle('mode-steal', Boolean(placement?.stealing));
+  document.body.classList.toggle('mode-swap', Boolean(swapping));
   canvas.classList.toggle('placing', !!placement);
   render();
 }
@@ -1115,7 +1179,7 @@ function autoStartPlacement() {
 
 function cancelModes() {
   placement = null;
-  mutating = null;
+  swapping = null;
   pickingBlank = null;
   exchanging = null;
 }
@@ -1139,9 +1203,55 @@ function announceArrivals() {
     const fresh = names.filter((n) => !seatedNames.has(n) && n !== mine);
     if (fresh.length) {
       status(`${fresh.join(' & ')} joined the game 👋`, 'good');
+      offerRestart(fresh);
     }
   }
   seatedNames = new Set(names);
+}
+
+/**
+ * Somebody new has sat down at a game already in progress. Only the admin
+ * is asked, and only when there is a game to abandon: starting over so the
+ * newcomer isn't a hundred points behind is their call, and theirs alone.
+ */
+let restartOffered = false;
+function offerRestart(arrivals) {
+  if (restartOffered) return; // asked once; the button in setup is always there
+  restartOffered = true;
+  // Online, this is the admin's call. Hot-seat, everyone is round the same
+  // screen and whoever is holding it can answer for the table.
+  const me = online() ? session.playerId : currentPlayer;
+  if (online() && !game.isAdmin(me)) return;
+  if (game.board.isEmpty()) return;
+  const box = $('cell-actions');
+  const who = arrivals.join(' & ');
+  box.innerHTML = `<b>${esc(who)} just arrived</b> — mid-game.
+    <div class="muted" style="margin-top:2px">Start again from nothing so everyone is level? You choose who leads off.</div>
+    <div id="restart-who" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+    <div class="place-controls">
+      <button id="restart-no">✕<span class="lbl">carry on</span></button>
+    </div>`;
+  const row = $('restart-who');
+  for (const p of game.players) {
+    if (p.isCpu) continue;
+    const b = document.createElement('button');
+    b.className = 'mini';
+    b.textContent = `↺ ${p.name} starts`;
+    b.onclick = () => doRestart(p.id);
+    row.appendChild(b);
+  }
+  $('restart-no').onclick = () => {
+    status('carrying on where you were', '');
+    refresh();
+  };
+}
+
+function doRestart(firstId) {
+  const name = game.players[firstId]?.name ?? 'someone';
+  if (!confirm(`Start the whole game again? The board, the scores and the record all go, and ${name} leads off.`)) {
+    return;
+  }
+  doMove({ type: 'restart', firstId }, (r) => `a fresh game — ${game.players[r.first].name} leads off ✦`);
 }
 
 function adoptView(d) {
@@ -1168,9 +1278,27 @@ function adoptView(d) {
     if (scored) startFlourish(game.lastMove.keys, Number(scored[1]));
   }
   if (changed) announceArrivals();
+  noteNewDay();
   noteTurnHere();
   rememberThisGame();
   refresh();
+}
+
+// A new day moves the ★ to clean ground, which is no use to anybody who
+// can't see it: every player is taken there once, whatever their camera
+// preference, and told the day has turned.
+let dayShown = null;
+function noteNewDay() {
+  const stamp = `${game.day}:${game.dayOpenedAt ?? ''}`;
+  if (dayShown === null) {
+    dayShown = stamp; // the first look at a game is not a new day
+    return;
+  }
+  if (dayShown === stamp) return;
+  dayShown = stamp;
+  cancelModes();
+  flyToCells([Board.key(game.startCell.x, game.startCell.y)], { force: true });
+  status(`day ${game.day} — the ★ has moved to open ground`, 'good');
 }
 
 /** Keep this table in the device's own list, so the games menu knows it. */
@@ -1210,7 +1338,10 @@ async function doMove(move, describe) {
   try {
     const r = game.apply({ playerId: currentPlayer, ...move });
     if (r?.map) currentPlayer = r.map[currentPlayer]; // a removal renumbered the seats
-    if (typeof r?.points === 'number') startFlourish(game.lastMove?.keys, r.points);
+    if (typeof r?.points === 'number') {
+      startFlourish(game.lastMove?.keys, r.emptied ? Math.max(r.points, 50) : r.points);
+    }
+    if (r?.emptied) celebrateSweep();
     cancelModes();
     selected = null;
     status(describe(r), 'good');
@@ -1234,42 +1365,9 @@ async function doMove(move, describe) {
   }
 }
 
-/**
- * Start a steal as an on-board composition: the replacement word is spelled
- * over the old word with rack taps or typing, and the arrow keys slide it
- * along the line (that is the offset). ✓ submits.
- */
-function stealWord(w, dir) {
-  if (!requirePlayer()) return;
-  cancelModes();
-  selected = null;
-  placement = {
-    sx: w.cells[0].x,
-    sy: w.cells[0].y,
-    dir,
-    entries: [],
-    stealing: { x: w.cells[0].x, y: w.cells[0].y, dir, word: w.word },
-  };
-  status(`spell your replacement for "${w.word.toUpperCase()}" — its letters are yours to reuse`, '');
-  refresh();
-}
-
 /** The move the current placement would submit, or null if incomplete. */
 function currentMove() {
   if (!placement) return null;
-  if (placement.stealing) {
-    const word = placement.entries.map((e) => e.letter).join('');
-    if (word.length < 2) return null;
-    const st = placement.stealing;
-    return {
-      type: 'steal',
-      x: st.x,
-      y: st.y,
-      dir: st.dir,
-      word,
-      offset: st.dir === 'h' ? placement.sx - st.x : placement.sy - st.y,
-    };
-  }
   const tiles = placement.entries
     .filter((e) => !e.existing)
     .map((e) => ({ x: e.x, y: e.y, letter: e.letter, fromBlank: e.fromBlank }));
@@ -1295,14 +1393,13 @@ function previewMove() {
   }
 }
 
-/** Dry-run a mutation so the swap can show what it leaves you holding. */
-function previewMutate(letter) {
-  if (currentPlayer == null || !mutating) return null;
-  const fromBlank = !game.players[currentPlayer].rack.includes(letter);
+/** Dry-run the pending swaps, so the panel can price them as they build. */
+function previewSwap() {
+  if (currentPlayer == null || !swapping?.picks.length) return null;
   try {
     const clone = Game.fromJSON(game.toJSON(), { dictionary });
-    const r = clone.mutate({ playerId: currentPlayer, x: mutating.x, y: mutating.y, letter, fromBlank });
-    return { ok: true, got: r.got, words: r.words };
+    const r = clone.swap({ playerId: currentPlayer, swaps: swapping.picks });
+    return { ok: true, points: r.points, bonus: r.bonus, words: r.words };
   } catch (err) {
     if (err instanceof GameError) return { ok: false, message: err.message };
     console.error(err);
@@ -1312,13 +1409,15 @@ function previewMutate(letter) {
 
 const gotName = (l) => (l === BLANK ? 'wildcard' : l.toUpperCase());
 
-function applyMutate(letter, fromBlank) {
-  const cell = mutating;
+function commitSwap() {
+  if (!swapping?.picks.length) return;
   doMove(
-    { type: 'mutate', x: cell.x, y: cell.y, letter, fromBlank },
+    { type: 'swap', swaps: swapping.picks },
     (r) =>
-      `mutated to ${r.words.map((w) => w.toUpperCase()).join(' & ')} and took the ${gotName(r.got)}` +
-      ' — no score, and your turn is still yours',
+      `swapped ${r.took.length} letter${r.took.length === 1 ? '' : 's'} into ` +
+      `${r.words.map((w) => w.toUpperCase()).join(' & ')} for ${r.points}` +
+      `${r.took.length > 1 ? ` (+${r.bonus} for the combination)` : ''}` +
+      ` — took ${r.took.map(gotName).join(', ')}`,
   );
 }
 
@@ -1326,18 +1425,18 @@ function commitPlacement() {
   const move = currentMove();
   if (!move) {
     status(
-      placement?.stealing ? 'spell at least two letters' : 'add at least one new letter',
+      'add at least one new letter',
       'error',
     );
     return;
   }
-  if (placement && !placement.stealing) lastDir = placement.dir; // a played direction
-  markUsed(placement?.stealing ? 'steal' : 'play');
+  if (placement) lastDir = placement.dir; // a played direction
+  markUsed('play');
   doMove(
     move,
-    move.type === 'steal'
-      ? (r) => `stole it for ${r.points} points${r.stolen ? `, pocketed ${r.stolen}` : ''}${fruitNote(r)}`
-      : (r) => `played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points${fruitNote(r)}`,
+    (r) =>
+      `played ${r.words.map((w) => w.toUpperCase()).join(', ')} for ${r.points} points` +
+      `${r.emptied ? ' — the whole tray, doubled!' : ''}${fruitNote(r)}`,
   );
 }
 
@@ -1596,18 +1695,22 @@ canvas.addEventListener('pointercancel', (e) => {
 
 function tapCell({ x, y }) {
   kbCursor = { x, y };
+  // Mid-swap, a tap on the board is another letter to trade — or a change
+  // of mind about one already chosen.
+  if (swapping) {
+    const already = swapping.picks.findIndex((s) => s.x === x && s.y === y);
+    if (already !== -1) {
+      swapping = { picks: swapping.picks.filter((_, i) => i !== already), at: null };
+    } else if (game.board.get(x, y)) {
+      swapping = { ...swapping, at: { x, y } };
+    } else {
+      status('swaps are for letters already on the board', '');
+    }
+    refresh();
+    return;
+  }
   // A tap while a word is being spelled moves the word instead of wiping it.
   if (placement?.entries.length && !game.board.get(x, y)) {
-    if (placement.stealing) {
-      // Slide only along the stolen word's hex line.
-      const [dx, dy] = DIRS[placement.stealing.dir];
-      const k = dy !== 0 ? y - placement.sy : x - placement.sx;
-      if (placement.sx + k * dx === x && placement.sy + k * dy === y) {
-        slidePlacement(k * dx, k * dy);
-      }
-      refresh();
-      return;
-    }
     const typed = placement.entries.map((e) => e.typed);
     placement = { sx: x, sy: y, dir: placement.dir, entries: [] };
     for (const t of typed) if (!typeLetter(t, { silent: true })) break;
@@ -1635,14 +1738,7 @@ function startPlacement(x, y) {
 function slidePlacement(dx, dy) {
   placement.sx += dx;
   placement.sy += dy;
-  if (placement.stealing) {
-    const [dx, dy] = DIRS[placement.dir];
-    placement.entries = placement.entries.map((e, i) => ({
-      ...e,
-      x: placement.sx + i * dx,
-      y: placement.sy + i * dy,
-    }));
-  } else {
+  {
     const typed = placement.entries.map((e) => e.typed);
     placement.entries = [];
     for (const t of typed) if (!typeLetter(t, { silent: true })) break;
@@ -1838,6 +1934,21 @@ function anticAt(key) {
   }
 }
 
+/**
+ * Laying out the whole tray in one word is the best thing that can happen
+ * to you in an afternoon, so the board says so: a burst of light off the
+ * word, and a line that stays up.
+ */
+function celebrateSweep() {
+  status('the whole tray, in one word — doubled! 🎉', 'good');
+  if (reducedMotion?.matches) return;
+  const el = $('nameplate');
+  el.classList.remove('sweep');
+  void el.offsetWidth;
+  el.classList.add('sweep');
+  setTimeout(() => el.classList.remove('sweep'), 1600);
+}
+
 // ------------------------------------------------------------ camera flight
 const FLY_MS = 500;
 // Chasing the camera around is disorienting, so it stays put unless asked.
@@ -1961,7 +2072,7 @@ function lastWordKeys() {
 
 /** Fly to whatever was played last, wherever it came from. */
 function showLastMove() {
-  if (placement || mutating || exchanging) return; // mid-move: don't move the view
+  if (placement || swapping || exchanging) return; // mid-move: don't move the view
   if (!flyEnabled) return; // off by default: the board stays where you put it
   flyToCells(game.lastMove?.keys);
 }
@@ -1994,17 +2105,29 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (mutating) {
+  if (swapping) {
     if (e.key === 'Escape') {
-      mutating = null;
+      swapping = null;
       pickingBlank = null;
       refresh();
-    } else if (/^[a-z]$/.test(key)) {
-      mutating = { x: mutating.x, y: mutating.y, pick: key }; // confirm on ✓
-      refresh();
-    } else if (e.key === 'Enter' && mutating.pick) {
+    } else if (/^[a-z]$/.test(key) && swapping.at) {
+      // Typing names the letter for the cell you just tapped.
       const p = game.players[currentPlayer];
-      applyMutate(mutating.pick, p && !p.rack.includes(mutating.pick));
+      const held = p ? [...p.rack] : [];
+      for (const sw of swapping.picks) {
+        const i = held.indexOf(sw.fromBlank ? BLANK : sw.letter);
+        if (i !== -1) held.splice(i, 1);
+      }
+      swapping = {
+        picks: [...swapping.picks, { ...swapping.at, letter: key, fromBlank: !held.includes(key) }],
+        at: null,
+      };
+      refresh();
+    } else if (e.key === 'Enter') {
+      commitSwap();
+    } else if (e.key === 'Backspace' && swapping.picks.length) {
+      swapping = { picks: swapping.picks.slice(0, -1), at: null };
+      refresh();
     }
     return;
   }
@@ -2020,17 +2143,6 @@ window.addEventListener('keydown', (e) => {
     if (arrow) {
       // Move the whole word start; the viewport follows the cursor.
       e.preventDefault();
-      if (placement.stealing) {
-        // Stealing slides only along the stolen word's line: right/down step
-        // forward, left/up step back.
-        const [dx, dy] = DIRS[placement.stealing.dir];
-        const k = arrow[0] > 0 || arrow[1] > 0 ? 1 : -1;
-        slidePlacement(k * dx, k * dy);
-        const cur = nextCell();
-        ensureVisible(cur.x, cur.y);
-        refresh();
-        return;
-      }
       slidePlacement(arrow[0], arrow[1]);
       const cur = nextCell();
       ensureVisible(cur.x, cur.y);
@@ -2095,7 +2207,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 function flipDirection() {
-  if (!placement || placement.stealing) return;
+  if (!placement) return;
   lastDir = NEXT_DIR[placement.dir]; // an explicit choice, worth remembering
   const typed = placement.entries.map((e) => e.typed);
   placement = {
@@ -2116,19 +2228,6 @@ function flipDirection() {
  * you can spell straight across them; mismatched wildcards are redefined.
  */
 function typeLetter(letter, { preferBlank = false, silent = false } = {}) {
-  if (placement.stealing) {
-    // Stealing spells the replacement over the old word; the engine sources
-    // letters from the old word and the rack, so just record the letters.
-    if (placement.entries.length >= 15) return false;
-    placement.entries.push({ ...nextCell(), letter, typed: letter, existing: false });
-    if (!silent) {
-      status('');
-      const cur = nextCell();
-      ensureVisible(cur.x, cur.y);
-      refresh();
-    }
-    return true;
-  }
   for (let guard = 0; guard < 64; guard++) {
     const cell = nextCell();
     const tile = game.board.get(cell.x, cell.y);
@@ -2188,6 +2287,7 @@ $('add-player-form').addEventListener('submit', (e) => {
     return;
   }
   rememberName(name);
+  const wasPlaying = !game.board.isEmpty();
   const p = game.addPlayer(name);
   seatedNames = null; // local seats announce themselves below
   $('player-name').value = '';
@@ -2195,6 +2295,7 @@ $('add-player-form').addEventListener('submit', (e) => {
   autoStartPlacement();
   status(`${p.name} joined the game 👋 — dealt ${p.rack.length} tiles`, 'good');
   refresh();
+  if (wasPlaying) offerRestart([p.name]);
   showPanelTop();
 });
 
@@ -2305,11 +2406,13 @@ function dropOnBoard(letter, cell) {
     status('there is a letter there already — drop on an empty cell', 'error');
     return;
   }
-  const carryOn = placement && (placement.entries.length > 0 || placement.stealing);
-  if (carryOn) {
-    const n = nextCell();
+  if (placement && placement.entries.length > 0) {
+    // The word may already be running across letters that were there
+    // before; the next tile of yours lands on the first free cell beyond
+    // them, so that is what the drop has to match.
+    const n = landingCell();
     if (n.x !== cell.x || n.y !== cell.y) {
-      status('drop it on the arrow to carry this word on, or ✕ to start elsewhere', '');
+      status('drop it where the arrow is, to carry this word on', '');
       return;
     }
   } else {
@@ -2326,9 +2429,9 @@ function dropOnBoard(letter, cell) {
 
 rackBox.addEventListener('pointerdown', (e) => {
   // Arranging your letters mid-word is the whole point of the tray, so a
-  // placement is no reason to lock it. Exchanging and mutating are: there a
+  // placement is no reason to lock it. Exchanging and swapping are: there a
   // tap means "pick this one", and a half-drag would pick the wrong tile.
-  if (mutating || exchanging) return;
+  if (swapping || exchanging) return;
   const tile = e.target.closest('.tile');
   if (!tile) return;
   const r = tile.getBoundingClientRect();
@@ -2695,6 +2798,19 @@ $('fly-camera').addEventListener('change', (e) => {
   );
 });
 
+$('restart-game').addEventListener('click', () => {
+  const me = online() ? session.playerId : currentPlayer;
+  if (!game.isAdmin(me)) return;
+  const humans = game.players.filter((p) => !p.isCpu);
+  const names = humans.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+  const pick = humans.length > 1
+    ? prompt(`Who leads off the new game?\n${names}`, '1')
+    : '1';
+  if (pick === null) return;
+  const chosen = humans[Math.max(0, Math.min(humans.length - 1, Number(pick) - 1))];
+  doRestart(chosen?.id ?? me);
+});
+
 $('mode-turns').addEventListener('change', (e) => {
   const mode = e.target.checked ? 'turns' : 'free';
   doMove({ type: 'mode', mode }, (r) =>
@@ -2766,6 +2882,7 @@ window.wordser = {
   get flourishing() { return flourishing; },
   get antic() { return antic; },
   cam,
+  get placement() { return placement; },
   showMenu,
   refreshGames,
   noteTurnsElsewhere,

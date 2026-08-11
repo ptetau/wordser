@@ -19,8 +19,9 @@ const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
 /** Moves that don't consume a turn, so no CPU seat should answer them. */
 // Moves that leave the turn where it is, so the robots don't get to answer
-// them — a mutation among them: it trades a tile for a tile, it isn't a play.
-const NON_TURN_MOVES = ['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'mutate'];
+// them. Everything that puts letters on the board — placing, swapping — is
+// a play and is not on this list.
+const NON_TURN_MOVES = ['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart'];
 
 let dictionaryPromise;
 const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());

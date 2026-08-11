@@ -42,7 +42,7 @@ function stubContext() {
   );
 }
 
-const TYPES = ['lemon', 'cherry', 'chilli', 'grape', 'banana', 'kiwi'];
+const TYPES = ['lemon', 'cherry', 'chilli', 'grape', 'banana', 'kiwi', 'mushroom'];
 
 test('every fruit the engine can hand out has art and a colour', () => {
   assert.deepEqual(Object.keys(FRUIT_EMOJI).sort(), TYPES.slice().sort());

@@ -71,18 +71,18 @@ test('a kiwi hands you a wildcard', () => {
   assert.ok(g.players[0].rack.includes('*'));
 });
 
-test('a longer steal can grab a fruit beyond the old word', () => {
-  const g = makeGame(['cat', 'cart', 'carts'], {
+test('extending a word onto a fruit eats it', () => {
+  const g = makeGame(['cat', 'cats'], {
     racks: [
       ['c', 'a', 't', 'e', 'e', 'e', 'e'],
-      ['r', 's', 'e', 'e', 'e', 'e', 'e'],
+      ['s', 'e', 'e', 'e', 'e', 'e', 'e'],
     ],
   });
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
-  g.fruits.set('4,0', 'lemon');
-  const r = g.stealReplace({ playerId: 1, x: 0, y: 0, dir: 'h', word: 'carts' });
+  g.fruits.set('3,0', 'lemon');
+  const r = g.place({ playerId: 1, tiles: [{ x: 3, y: 0, letter: 's' }] });
   assert.deepEqual(r.fruits, ['lemon']);
-  assert.equal(g.fruits.has('4,0'), false);
+  assert.equal(g.fruits.has('3,0'), false);
 });
 
 test('fruits spawn on empty cells near the board, capped and spread out', () => {
