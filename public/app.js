@@ -1,7 +1,9 @@
 import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX, waitingOn } from './engine/game.js';
 // Moves that leave your turn where it is. Everything that puts letters on
 // the board — placing, swapping — is a play, and is not among them.
-const NON_TURN_MOVES = new Set(['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart']);
+const NON_TURN_MOVES = new Set([
+  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode', 'skip',
+]);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
 import { Board, WORLD, wrapCoord, DIRS } from './engine/board.js';
@@ -468,25 +470,37 @@ function render() {
   }
 }
 
+/** Where the cursor is sitting: the next letter goes here. */
 function nextCell() {
-  const n = placement.entries.length;
-  const [dx, dy] = DIRS[placement.dir];
-  return { x: placement.sx + n * dx, y: placement.sy + n * dy };
+  return { x: placement.cx, y: placement.cy };
 }
 
+/** True if this cell already holds one of the letters being placed. */
+const pendingAt = (x, y) => placement?.entries.find((e) => e.x === x && e.y === y);
+
 /**
- * Where the next tile from your rack actually lands: the arrow's cell, or
- * the first free cell past whatever letters are already sitting on the line
- * (spelling runs straight across those for free).
+ * Where a letter actually lands from the cursor: the cursor's own cell, or
+ * the first free one beyond whatever is already sitting on the line, since
+ * spelling runs straight across those for free.
  */
 function landingCell() {
   const [dx, dy] = DIRS[placement.dir];
   let { x, y } = nextCell();
-  for (let guard = 0; guard < 64 && game.board.get(x, y); guard++) {
+  for (let guard = 0; guard < 64; guard++) {
+    const board = game.board.get(x, y);
+    if (!board || (board.isBlank && !pendingAt(x, y))) break; // a blank can be redefined
+    if (!board) break;
     x += dx;
     y += dy;
   }
   return { x, y };
+}
+
+/** Put the cursor on a cell, moving nothing else. */
+function moveCursor(x, y) {
+  placement.cx = x;
+  placement.cy = y;
+  ensureVisible(x, y);
 }
 
 // ------------------------------------------------------------------- panels
@@ -613,13 +627,15 @@ function renderRack() {
         show = null;
       }
     }
-    if (show === null) {
+    // Nothing renders that the player isn't actually holding: a tile only
+    // appears when a real, unclaimed letter in the rack answers for it.
+    const idx = rackIndexAt.get(at);
+    if (show === null || idx === undefined) {
       const slot = document.createElement('div');
       slot.className = 'slot';
       box.appendChild(slot);
       return;
     }
-    const idx = rackIndexAt.get(at);
     const t = document.createElement('button');
     t.type = 'button';
     t.className = 'tile' + (show === BLANK ? ' blank' : '');
@@ -688,7 +704,7 @@ function rackTap(letter, index) {
   if (selected && requirePlayer()) {
     // Start a new word from the selected tile: the cursor opens on it, and
     // spelling consumes it in place.
-    placement = { sx: selected.x, sy: selected.y, dir: 'h', entries: [] };
+    placement = { cx: selected.x, cy: selected.y, dir: 'h', entries: [] };
     selected = null;
     if (letter === BLANK) {
       pickingBlank = 'placement';
@@ -719,6 +735,11 @@ function letterGrid(box, { available = null, onPick }) {
 
 function renderActions() {
   const box = $('cell-actions');
+  if (game.over) {
+    box.innerHTML = '<span class="muted">The game is finished. Start another under <i>Players &amp; setup</i>.</span>';
+    $('end-day').hidden = true;
+    return;
+  }
   // No business on screen mid-move, and never one careless tap from a reset.
   $('end-day').hidden =
     online() || !game.players.length || Boolean(placement || swapping || exchanging || pickingBlank);
@@ -861,8 +882,10 @@ function renderActions() {
     return;
   }
   if (placement) {
-    const word = placement.entries.map((e) => e.redefine ?? e.letter).join('');
     const preview = previewMove();
+    const word = preview?.words?.length
+      ? preview.words[0].toUpperCase()
+      : pendingReading();
     const note = !preview
       ? ''
       : preview.ok
@@ -870,7 +893,7 @@ function renderActions() {
         : ` · <span class="preview-bad">${esc(preview.message)}</span>`;
     const started = placement.entries.length > 0;
     const heading =
-      `<b>Placing:</b> ${word.toUpperCase() || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}`;
+      `<b>Placing:</b> ${word || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}`;
     // Cancel sits at the far end from play: they are 6px apart on a phone.
     box.innerHTML = `${heading}${note}
       <div class="place-controls">
@@ -883,7 +906,8 @@ function renderActions() {
     // The commit gesture, lit exactly when pressing it is the right move.
     if (preview?.ok) glint($('pc-play'), 'play');
     $('pc-undo').onclick = () => {
-      placement.entries.pop();
+      const gone = placement.entries.pop();
+      if (gone) moveCursor(gone.x, gone.y);
       refresh();
     };
     $('pc-cancel').onclick = () => {
@@ -938,6 +962,21 @@ function renderActions() {
           r.dayEnded ? 'everyone passed — a new day begins! ★' : 'passed',
         );
       box.appendChild(pass);
+
+      // Giving up is always available, and always asks twice.
+      const quit = document.createElement('button');
+      quit.id = 'forfeit-btn';
+      quit.textContent = '🏳️ Forfeit — leave the game';
+      quit.onclick = () => {
+        const alone = game.players.length === 2;
+        if (!confirm(
+          alone
+            ? 'Forfeit? Your letters go back in the bag and the other player wins.'
+            : 'Forfeit? Your letters go back in the bag and your seat closes.',
+        )) return;
+        doMove({ type: 'forfeit' }, (r) => `${r.forfeited} forfeited 🏳️`);
+      };
+      box.appendChild(quit);
     }
     return;
   }
@@ -954,7 +993,7 @@ function renderActions() {
   for (const dir of Object.keys(DIRS)) {
     mkBtn(`Spell a word from here ${DIR_GLYPH[dir]}`, () => {
       if (!requirePlayer()) return;
-      placement = { sx: selected.x, sy: selected.y, dir, entries: [] };
+      placement = { cx: selected.x, cy: selected.y, dir, entries: [] };
       selected = null;
       refresh();
     });
@@ -1020,8 +1059,14 @@ function renderOnline() {
   $('fly-camera').checked = flyEnabled;
   // Only the admin sets the table's rules, so only they see the switch.
   const me = online() ? session.playerId : currentPlayer;
-  $('mode-row').hidden = !(game.players.length > 1 && game.isAdmin(me));
-  $('restart-game').hidden = !(game.isAdmin(me) && !game.board.isEmpty());
+  // Online these belong to the admin; round one screen, whoever is holding
+  // it speaks for the table.
+  const runsTable = !online() || game.isAdmin(me);
+  $('mode-row').hidden = !(game.players.length > 1 && runsTable);
+  $('goal-row').hidden = !runsTable;
+  const goalBox = $('goal-words');
+  if (document.activeElement !== goalBox) goalBox.value = game.goal ?? '';
+  $('restart-game').hidden = !(runsTable && (!game.board.isEmpty() || game.over));
   $('mode-turns').checked = game.mode === 'turns';
   // Only when it is the answer: alone at the table, having already played.
   const stuck = game.players.length === 1 && game.lastPlayerId === currentPlayer;
@@ -1119,6 +1164,36 @@ function renderNameplate() {
   }
 }
 
+/** How far through a game with a finish line. */
+function renderGoal() {
+  const chip = $('goal-chip');
+  const left = game.wordsLeft;
+  chip.hidden = game.goal === null || Boolean(game.over);
+  if (chip.hidden) return;
+  chip.classList.toggle('last', left <= 3);
+  chip.innerHTML = left === 1
+    ? '<b>the last word</b>'
+    : `word <b>${game.wordsPlayed + 1}</b> of ${game.goal}`;
+}
+
+/** When a finite game has finished, the panel says so instead of offering moves. */
+function renderGameOver() {
+  const el = $('game-over');
+  el.hidden = !game.over;
+  if (!game.over) return;
+  const { winners, best } = game.over;
+  const standing = [...game.players]
+    .sort((a, b) => b.score - a.score)
+    .map((p) => `${esc(p.name)} ${p.score}`)
+    .join(' · ');
+  el.innerHTML = `<div class="trophy">🏆 ${
+    winners.length
+      ? `${winners.map(esc).join(' & ')} ${winners.length > 1 ? 'share it' : 'wins'} on ${best}`
+      : 'game over'
+  }</div>
+    <div class="final">${standing || 'nobody left at the table'}</div>`;
+}
+
 function renderDayVote() {
   const el = $('day-vote');
   const v = game.dayEndVote;
@@ -1150,7 +1225,11 @@ function renderDayVote() {
 }
 
 function refresh() {
+  if (game.over) noteFinish();
+  else finishShown = false; // a restart puts the game back in play
   renderNameplate();
+  renderGoal();
+  renderGameOver();
   renderTurn();
   renderDayVote();
   renderPlayers();
@@ -1172,7 +1251,7 @@ function refresh() {
 function autoStartPlacement() {
   if (placement || !game.board.isEmpty()) return;
   if (currentPlayer == null || !game.players[currentPlayer] || game.players[currentPlayer].isCpu) return;
-  placement = { sx: game.startCell.x, sy: game.startCell.y, dir: 'h', entries: [] };
+  placement = { cx: game.startCell.x, cy: game.startCell.y, dir: 'h', entries: [] };
   kbCursor = { ...game.startCell };
   ensureVisible(game.startCell.x, game.startCell.y);
 }
@@ -1301,6 +1380,22 @@ function noteNewDay() {
   status(`day ${game.day} — the ★ has moved to open ground`, 'good');
 }
 
+// The end of a finite game, said once however the news arrives — your own
+// last word, or a poll that brings somebody else's.
+let finishShown = false;
+function noteFinish() {
+  if (!game.over || finishShown) return;
+  finishShown = true;
+  cancelModes();
+  const { winners, best } = game.over;
+  status(
+    winners.length
+      ? `game over — ${winners.join(' & ')} ${winners.length > 1 ? 'share it' : 'wins'} on ${best} 🏆`
+      : 'game over',
+    'good',
+  );
+}
+
 /** Keep this table in the device's own list, so the games menu knows it. */
 function rememberThisGame() {
   if (!online()) return;
@@ -1342,6 +1437,7 @@ async function doMove(move, describe) {
       startFlourish(game.lastMove?.keys, r.emptied ? Math.max(r.points, 50) : r.points);
     }
     if (r?.emptied) celebrateSweep();
+    if (r?.finished) noteFinish();
     cancelModes();
     selected = null;
     status(describe(r), 'good');
@@ -1378,6 +1474,31 @@ function currentMove() {
   return { type: 'place', tiles, redefinitions };
 }
 
+/**
+ * What the pending letters say, read along the line rather than in the
+ * order they were put down — you can place them in any order now, and the
+ * panel should show the word, not your keystrokes.
+ */
+function pendingReading() {
+  if (!placement?.entries.length) return '';
+  const [dx, dy] = DIRS[placement.dir];
+  const along = (e) => (dx ? e.x : e.y);
+  const across = (e) => (dx ? e.y : e.x);
+  const line = [...placement.entries].sort((a, b) => along(a) - along(b));
+  const rows = new Set(line.map(across));
+  if (rows.size > 1) return line.map((e) => (e.redefine ?? e.letter).toUpperCase()).join(' ');
+  // Fill the gaps with what is on the board, and a · where there is nothing.
+  const out = [];
+  for (let i = along(line[0]); i <= along(line[line.length - 1]); i++) {
+    const x = dx ? i : line[0].x;
+    const y = dx ? line[0].y : i;
+    const mine = placement.entries.find((e) => e.x === x && e.y === y);
+    const board = game.board.get(x, y);
+    out.push(mine ? (mine.redefine ?? mine.letter).toUpperCase() : board ? Board.effective(board).toUpperCase() : '·');
+  }
+  return out.join('');
+}
+
 /** Dry-run the pending move on a throwaway copy for live score feedback. */
 function previewMove() {
   const move = currentMove();
@@ -1385,7 +1506,7 @@ function previewMove() {
   try {
     const clone = Game.fromJSON(game.toJSON(), { dictionary });
     const r = clone.apply({ playerId: currentPlayer, ...move });
-    return { ok: true, points: r.points, fruit: r.fruits?.length > 0 };
+    return { ok: true, points: r.points, words: r.words, fruit: r.fruits?.length > 0 };
   } catch (err) {
     if (err instanceof GameError) return { ok: false, message: err.message };
     console.error(err);
@@ -1709,13 +1830,22 @@ function tapCell({ x, y }) {
     refresh();
     return;
   }
-  // A tap while a word is being spelled moves the word instead of wiping it.
-  if (placement?.entries.length && !game.board.get(x, y)) {
-    const typed = placement.entries.map((e) => e.typed);
-    placement = { sx: x, sy: y, dir: placement.dir, entries: [] };
-    for (const t of typed) if (!typeLetter(t, { silent: true })) break;
-    refresh();
-    return;
+  // Mid-word, the board is a canvas: tap one of your own pending letters to
+  // take it back, or any other cell to move the cursor there. Letters
+  // already placed stay exactly where they were put.
+  if (placement) {
+    const mine = pendingAt(x, y);
+    if (mine) {
+      placement.entries = placement.entries.filter((e) => e !== mine);
+      moveCursor(x, y);
+      refresh();
+      return;
+    }
+    if (!game.board.get(x, y) || placement.entries.length) {
+      moveCursor(x, y);
+      refresh();
+      return;
+    }
   }
   cancelModes();
   if (game.board.get(x, y)) {
@@ -1731,18 +1861,7 @@ function tapCell({ x, y }) {
 function startPlacement(x, y) {
   const rack = game.players[currentPlayer]?.rack ?? [];
   const dir = feasibleDirection(game.board, x, y, { rack, dictionary, lastDir });
-  return { sx: x, sy: y, dir, entries: [] };
-}
-
-/** Shift the whole pending word by (dx, dy), keeping its letters. */
-function slidePlacement(dx, dy) {
-  placement.sx += dx;
-  placement.sy += dy;
-  {
-    const typed = placement.entries.map((e) => e.typed);
-    placement.entries = [];
-    for (const t of typed) if (!typeLetter(t, { silent: true })) break;
-  }
+  return { cx: x, cy: y, dir, entries: [] };
 }
 
 canvas.addEventListener(
@@ -2141,11 +2260,9 @@ window.addEventListener('keydown', (e) => {
 
   if (placement) {
     if (arrow) {
-      // Move the whole word start; the viewport follows the cursor.
+      // Move the cursor; the letters already down stay put.
       e.preventDefault();
-      slidePlacement(arrow[0], arrow[1]);
-      const cur = nextCell();
-      ensureVisible(cur.x, cur.y);
+      moveCursor(placement.cx + arrow[0], placement.cy + arrow[1]);
       refresh();
     } else if (e.key === 'Escape') {
       placement = null;
@@ -2153,7 +2270,8 @@ window.addEventListener('keydown', (e) => {
     } else if (e.key === 'Enter') {
       commitPlacement();
     } else if (e.key === 'Backspace') {
-      placement.entries.pop();
+      const gone = placement.entries.pop();
+      if (gone) moveCursor(gone.x, gone.y);
       refresh();
     } else if (e.key === ' ') {
       e.preventDefault();
@@ -2209,16 +2327,7 @@ window.addEventListener('keydown', (e) => {
 function flipDirection() {
   if (!placement) return;
   lastDir = NEXT_DIR[placement.dir]; // an explicit choice, worth remembering
-  const typed = placement.entries.map((e) => e.typed);
-  placement = {
-    sx: placement.sx,
-    sy: placement.sy,
-    dir: NEXT_DIR[placement.dir],
-    entries: [],
-  };
-  for (const t of typed) {
-    if (!typeLetter(t, { silent: true })) break;
-  }
+  placement.dir = lastDir;
   refresh();
 }
 
@@ -2227,49 +2336,56 @@ function flipDirection() {
  * cursor that match are reused; mismatched normal tiles are auto-consumed so
  * you can spell straight across them; mismatched wildcards are redefined.
  */
-function typeLetter(letter, { preferBlank = false, silent = false } = {}) {
-  for (let guard = 0; guard < 64; guard++) {
-    const cell = nextCell();
-    const tile = game.board.get(cell.x, cell.y);
-    if (tile) {
-      const eff = Board.effective(tile);
-      if (eff === letter) {
-        placement.entries.push({ ...cell, letter, typed: letter, existing: true });
-        break;
-      }
-      if (tile.isBlank) {
-        placement.entries.push({ ...cell, letter, typed: letter, existing: true, redefine: letter });
-        break;
-      }
-      // Spell straight across a mismatched tile: consume it and continue.
-      placement.entries.push({ ...cell, letter: eff, typed: eff, existing: true });
-      continue;
+function typeLetter(letter, { preferBlank = false, silent = false, at = null } = {}) {
+  const p = game.players[currentPlayer];
+  if (!p) return false;
+  const cell = at ?? landingCell();
+  const sitting = game.board.get(cell.x, cell.y);
+
+  // A wildcard already on the board can be told to stand for this letter;
+  // anything else there is somebody's word, and the swap move is for that.
+  if (sitting) {
+    if (!sitting.isBlank) {
+      if (!silent) status('that cell is taken — swap that letter instead', 'error');
+      return false;
     }
-    const p = game.players[currentPlayer];
-    const used = placement.entries
-      .filter((e) => !e.existing)
-      .map((e) => (e.fromBlank ? BLANK : e.letter));
+    placement.entries = placement.entries.filter((e) => !(e.x === cell.x && e.y === cell.y));
+    placement.entries.push({ ...cell, letter, typed: letter, existing: true, redefine: letter });
+  } else {
+    // What is left in hand, once the letters already out on the board are
+    // taken off it.
     const avail = [...p.rack];
-    for (const u of used) {
-      const i = avail.indexOf(u);
+    for (const e of placement.entries) {
+      if (e.existing) continue;
+      const i = avail.indexOf(e.fromBlank ? BLANK : e.letter);
       if (i !== -1) avail.splice(i, 1);
     }
+    // Dropping onto a cell you have already used replaces what was there.
+    const over = pendingAt(cell.x, cell.y);
+    if (over && !over.existing) avail.push(over.fromBlank ? BLANK : over.letter);
+
+    let entry = null;
     if (!preferBlank && avail.includes(letter)) {
-      placement.entries.push({ ...cell, letter, typed: letter, existing: false });
+      entry = { ...cell, letter, typed: letter, existing: false };
     } else if (avail.includes(BLANK)) {
-      placement.entries.push({ ...cell, letter, typed: letter, existing: false, fromBlank: true });
+      entry = { ...cell, letter, typed: letter, existing: false, fromBlank: true };
     } else if (avail.includes(letter)) {
-      placement.entries.push({ ...cell, letter, typed: letter, existing: false });
+      entry = { ...cell, letter, typed: letter, existing: false };
     } else {
       if (!silent) status(`no "${letter.toUpperCase()}" (or blank) left in your rack`, 'error');
       return false;
     }
-    break;
+    if (over) placement.entries = placement.entries.filter((e) => e !== over);
+    placement.entries.push(entry);
   }
+
+  // The cursor walks on along the line, so typing a word still just works.
+  const [dx, dy] = DIRS[placement.dir];
+  placement.cx = cell.x + dx;
+  placement.cy = cell.y + dy;
   if (!silent) {
     status('');
-    const cur = nextCell();
-    ensureVisible(cur.x, cur.y);
+    ensureVisible(placement.cx, placement.cy);
     refresh();
   }
   return true;
@@ -2402,29 +2518,24 @@ function swapInLayout(p, a, b) {
  */
 function dropOnBoard(letter, cell) {
   if (!requirePlayer()) return;
-  if (game.board.get(cell.x, cell.y)) {
-    status('there is a letter there already — drop on an empty cell', 'error');
+  const sitting = game.board.get(cell.x, cell.y);
+  if (sitting && !sitting.isBlank) {
+    status('there is a letter there already — tap it to swap it instead', 'error');
     return;
   }
-  if (placement && placement.entries.length > 0) {
-    // The word may already be running across letters that were there
-    // before; the next tile of yours lands on the first free cell beyond
-    // them, so that is what the drop has to match.
-    const n = landingCell();
-    if (n.x !== cell.x || n.y !== cell.y) {
-      status('drop it where the arrow is, to carry this word on', '');
-      return;
-    }
-  } else {
+  if (!placement) {
     placement = startPlacement(cell.x, cell.y);
     kbCursor = { x: cell.x, y: cell.y };
   }
   if (letter === BLANK) {
+    // A wildcard needs telling what it stands for; park the cursor on the
+    // cell it was dropped on so the letter lands there.
+    moveCursor(cell.x, cell.y);
     pickingBlank = 'placement';
     refresh();
     return;
   }
-  typeLetter(letter);
+  typeLetter(letter, { at: cell });
 }
 
 rackBox.addEventListener('pointerdown', (e) => {
@@ -2798,9 +2909,19 @@ $('fly-camera').addEventListener('change', (e) => {
   );
 });
 
+$('goal-words').addEventListener('change', (e) => {
+  const raw = e.target.value.trim();
+  const words = raw === '' || Number(raw) === 0 ? null : Number(raw);
+  doMove({ type: 'goal', words }, (r) =>
+    r.goal === null
+      ? 'no finish line — the game runs on'
+      : `playing to ${r.goal} words, ${r.goal - r.wordsPlayed} to go`,
+  );
+});
+
 $('restart-game').addEventListener('click', () => {
   const me = online() ? session.playerId : currentPlayer;
-  if (!game.isAdmin(me)) return;
+  if (online() && !game.isAdmin(me)) return;
   const humans = game.players.filter((p) => !p.isCpu);
   const names = humans.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
   const pick = humans.length > 1
@@ -2883,6 +3004,20 @@ window.wordser = {
   get antic() { return antic; },
   cam,
   get placement() { return placement; },
+  get currentPlayer() { return currentPlayer; },
+  /** Any tile on screen the current player isn't holding. Should be []. */
+  trayGhosts() {
+    const held = [...(game.players[currentPlayer]?.rack ?? [])];
+    const ghosts = [];
+    for (const el of rackBox.children) {
+      const l = el.dataset?.letter;
+      if (!l) continue;
+      const i = held.indexOf(l);
+      if (i === -1) ghosts.push(l);
+      else held.splice(i, 1);
+    }
+    return ghosts;
+  },
   showMenu,
   refreshGames,
   noteTurnsElsewhere,

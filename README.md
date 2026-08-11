@@ -34,9 +34,8 @@ prise off; tap more letters, anywhere, to trade several in the same move,
 and the panel prices the lot as you build it. Tapping an empty cell guesses which way the word should run from the
 letters around it — a slot between two tiles, a neighbour on one side, or
 the roomier axis at a corner — and when nothing is touching it points at
-the nearest word instead, along the axis that word lies on, so spelling and
-then sliding with the arrow keys walks you into it. Space or the direction
-button overrides it. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
+the nearest word instead, along the axis that word lies on. Space or the
+direction button overrides it, and the arrow keys walk the cursor about. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
 ✓ play**), and ✓ carries the score, greying out with the reason when the
 word won't do. Whose go it is is on a plaque in the top-left corner of the board — the
 current player's name, large enough to settle an argument across a table —
@@ -49,18 +48,20 @@ The last word always wears a halo: light spilling onto the board around it,
 never over the letters, so somebody else's move is obvious the moment you
 look.
 Once the first word is down, the setup controls (adding players, the share
-link, ending the day) fold away under *Players & setup* so the panel is
-mostly the game; open the fold any time and it stays open. The arrow keys drive a board cursor (the viewport follows):
-type to start a word at the cursor, press Enter on a tile to swap it, and
-`+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
+link, ending the day, the word target) fold away under *Players & setup* so
+the panel is mostly the game; open the fold any time and it stays open. The
+arrow keys drive the board cursor (the viewport follows): type to spell from
+it, press Enter on a tile to swap it, and `+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
 drag a tile into any of them, including the empty ones, and it stays where
 you put it — slots are addresses, so two tiles trade places rather than the
 row shuffling along. Laying out `C _ T` with a hole in the middle is how you
 see the play before you make it. A tile can also be dragged **out of the
-tray and onto the board**, where it starts a word on that cell or carries on
-the one you're spelling. Dragging works mid-word, and a letter already
-placed leaves its slot open rather than closing the tray up. ⇄ shuffle
-rearranges the lot. Your name
+tray and onto any empty cell**, in whatever order suits you: the cursor is
+a cursor, not an anchor, so tapping the board moves it and leaves your
+letters where you put them, and tapping one of your own pending letters
+takes it back. Dragging works mid-word, and a letter already placed leaves
+its slot open rather than closing the tray up — nothing shows in the tray
+that isn't really in your hand. ⇄ shuffle rearranges the lot. Your name
 is remembered between visits, and a fresh game starts with the cursor
 already on the ★. Controls you have never used carry a slow glint until you
 try them once. **Add CPU player 🤖** works in both modes: local games
@@ -102,6 +103,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
   already down**: only what you put there this move can carry a bonus, and
   only if nobody has taken it. The world is 200,000 cells; the bonuses are
   out where the words aren't.
+- **A game with an end, if you want one.** The admin can set a target — say
+  25 words — and the corner of the board counts down to it. The game
+  finishes the moment the last word goes down, the top score wins, and the
+  board stays exactly as it ended. Without a target the game runs on
+  forever, one day at a time, the way it always has.
+- **Forfeiting.** Any player can give up: their letters go back into the
+  day's bag and their seat closes behind them, exactly as if the admin had
+  removed them. If it leaves one player standing, that player has won.
 - **Turns, or a free-for-all.** New games rotate in seat order: the game
   says whose go it is and refuses anybody else. The admin can switch the
   table to **free-for-all**, where anyone may play so long as they don't go
@@ -120,7 +129,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
   case and stray spacing are ignored when comparing, so `Ada` and `  aDA `
   collide. Up to 16 players may sit at one online game.
 - **Placing** works like scrabble: one row or column, no gaps, all resulting
-  words must be real. Racks refill to 7 tiles from a real scrabble bag —
+  words must be real. The letters may go down in **any order** — the ends
+  first and the middle afterwards, if that is how you see it — since only
+  the finished shape is judged. Racks refill to 7 tiles from a real scrabble bag —
   **one standard 100-tile set per day**, drawn without replacement. When
   the day's bag runs dry there are no more draws until tomorrow (swapping
   still works — board letters become the economy). Placing 7+ tiles earns a

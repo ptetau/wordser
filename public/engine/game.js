@@ -63,6 +63,7 @@ const FRUIT_FAR = 9; // ...and never further than a couple of moves away
 const DAILY_SPACING = 4; // min gap within the day's own scatter
 const FOCAL_SAMPLES = 6; // board cells the day's fruit is arranged around
 const CHERRY_CHOICES = 7;
+const MAX_GOAL = 999; // words to play to, at the outside
 const DAYS_KEPT = 5; // how many days the leader table remembers
 const QUIET_RADIUS = 6; // the patch a new day's star needs to itself...
 const QUIET_ENOUGH = 0.99; // ...and how empty it has to be
@@ -141,6 +142,9 @@ export class Game {
     this.turnId = null; // whose turn it is, in 'turns' mode
     this.lastPlayerId = null;
     this.spent = new Set(); // premium cells already collected, for good
+    this.goal = null; // words to play to, or null for a game with no end
+    this.wordsPlayed = 0; // words laid down since the game began
+    this.over = null; // { winners: [names], best } once the goal is reached
     this.days = []; // the last few days' results, newest last
     this.dayOpenedAt = null; // when the current day began, for the camera
     this.passed = new Set(); // players who passed since the last real move
@@ -218,6 +222,8 @@ export class Game {
     this.dayEndVote = null;
     this.starJumped = false;
     this.day = 1;
+    this.wordsPlayed = 0;
+    this.over = null; // the goal itself stands: play the same match again
     this.dateKey = this.#dateKey();
     this.startCell = { ...START_CELL };
     for (const p of this.players) {
@@ -277,6 +283,18 @@ export class Game {
     if (target.id === playerId) {
       fail('the admin cannot remove themselves — hand admin over first');
     }
+    const out = this.#removeSeat(target);
+    this.log.push(`${target.name} was removed from the game`);
+    return { removed: target.name, ...out };
+  }
+
+  /**
+   * Close a seat: their letters go back into the bag, everyone below shifts
+   * up, and every id the game was holding is remapped. Returns the `map`
+   * from old seat to new (null for the one that left) so callers holding
+   * ids of their own can follow.
+   */
+  #removeSeat(target) {
     const gone = target.id;
     const remap = (id) => (id == null || id === gone ? null : id > gone ? id - 1 : id);
     const map = this.players.map((_, i) => remap(i));
@@ -294,7 +312,6 @@ export class Game {
       : remap(this.turnId);
     this.passed = new Set([...this.passed].map(remap).filter((id) => id !== null));
     if (this.lastMove && this.lastMove.playerId === gone) this.lastMove.playerId = null;
-    this.log.push(`${target.name} was removed from the game`);
 
     if (this.dayEndVote) {
       if (this.dayEndVote.proposer === gone) {
@@ -305,11 +322,11 @@ export class Game {
         this.dayEndVote.agreed = this.dayEndVote.agreed.map(remap).filter((id) => id !== null);
         // Removing a holdout can be the last vote a proposal was waiting on.
         if (this.dayEndVote.agreed.length >= this.players.length) {
-          return { removed: target.name, map, ...this.#endDayByAgreement() };
+          return { map, ...this.#endDayByAgreement() };
         }
       }
     }
-    return { removed: target.name, map, dayEnded: false };
+    return { map, dayEnded: false };
   }
 
   player(id) {
@@ -331,6 +348,7 @@ export class Game {
    * who has to find someone (or something) to play against.
    */
   #assertCanPlay(player) {
+    if (this.over) fail('the game is over — start another to play on');
     if (this.mode === 'turns' && this.turnId !== null && this.turnId !== player.id) {
       fail(`it is ${this.player(this.turnId).name}'s turn`);
     }
@@ -348,6 +366,82 @@ export class Game {
   /** True if this player is the one the game is waiting on. */
   isTheirTurn(playerId) {
     return turnBelongsTo(this, playerId);
+  }
+
+  /**
+   * Play to a target: the game ends the moment the Nth word goes down.
+   * `words` of null (or 0) means the old thing — a game that runs until
+   * everybody wanders off.
+   */
+  setGoal({ playerId, words }) {
+    this.#maybeRollover();
+    this.#assertAdmin(playerId);
+    const n = words === null || words === undefined || words === 0 ? null : Number(words);
+    if (n !== null && (!Number.isInteger(n) || n < 1 || n > MAX_GOAL)) {
+      fail(`a target is between 1 and ${MAX_GOAL} words`);
+    }
+    if (n !== null && n <= this.wordsPlayed) {
+      fail(`${this.wordsPlayed} words are already down — pick a bigger target`);
+    }
+    this.goal = n;
+    this.log.push(
+      n === null
+        ? 'the game will run on with no finish line'
+        : `playing to ${n} words — ${n - this.wordsPlayed} to go`,
+    );
+    return { goal: this.goal, wordsPlayed: this.wordsPlayed };
+  }
+
+  /** How many words are left, or null when the game has no end in sight. */
+  get wordsLeft() {
+    return this.goal === null ? null : Math.max(0, this.goal - this.wordsPlayed);
+  }
+
+  /**
+   * The last word has gone down (or everyone else has gone home): work out
+   * who won and shut the game. The board stays exactly as it finished — it
+   * is the scoreboard, after all.
+   */
+  #finish(why) {
+    if (this.over) return this.over;
+    const best = Math.max(0, ...this.players.map((p) => p.score));
+    const winners = this.players.filter((p) => p.score === best).map((p) => p.name);
+    this.over = { winners, best, why };
+    this.turnId = null;
+    this.log.push(
+      winners.length
+        ? `${why} — ${winners.join(' & ')} ${winners.length > 1 ? 'share it' : 'wins'} on ${best} 🏆`
+        : `${why} — nobody scored`,
+    );
+    return this.over;
+  }
+
+  /**
+   * Give up and leave the table. Your letters go back into the day's bag and
+   * the seat closes behind you, exactly as if the admin had removed you —
+   * this is the same door, opened from the inside. If it leaves one player
+   * standing, they have won.
+   */
+  forfeit({ playerId }) {
+    this.#maybeRollover();
+    const player = this.player(playerId);
+    if (this.over) fail('the game is already over');
+    const name = player.name;
+    const wasAdmin = this.isAdmin(player.id);
+    const out = this.#removeSeat(player);
+    this.log.push(`${name} forfeited 🏳️`);
+    if (wasAdmin) {
+      // Somebody has to run the table: the first human still at it.
+      const heir = this.players.find((p) => !p.isCpu);
+      this.adminId = heir ? heir.id : null;
+      if (heir) this.log.push(`${heir.name} runs the game now 👑`);
+    }
+    if (this.players.length === 1) {
+      this.#finish(`${name} forfeited`);
+    } else if (!this.players.length) {
+      this.over = { winners: [], best: 0, why: 'everyone forfeited' };
+    }
+    return { forfeited: name, ...out };
   }
 
   /** Hand the turn to the next seat along (a no-op in free-for-all). */
@@ -1268,7 +1362,15 @@ export class Game {
       const fruits = this.#commit(
         player, points, `played "${main.word.toUpperCase()}"${note}${cleared}`, [...changed],
       );
-      return { points, words: formed.map((w) => w.word), repeats, emptied, fruits };
+      // One word laid down, however many it happens to cross.
+      this.wordsPlayed += 1;
+      const finished = this.goal !== null && this.wordsPlayed >= this.goal
+        ? this.#finish(`word ${this.goal} of ${this.goal}`)
+        : null;
+      return {
+        points, words: formed.map((w) => w.word), repeats, emptied, fruits,
+        wordsPlayed: this.wordsPlayed, wordsLeft: this.wordsLeft, finished,
+      };
     } catch (err) {
       for (const t of placed) this.board.remove(t.x, t.y);
       for (const r of redefined) {
@@ -1397,6 +1499,10 @@ export class Game {
         return this.skipTurn(move);
       case 'restart':
         return this.restart(move);
+      case 'goal':
+        return this.setGoal(move);
+      case 'forfeit':
+        return this.forfeit(move);
       default:
         fail(`unknown move type: ${move?.type}`);
     }
@@ -1438,6 +1544,9 @@ export class Game {
       startCell: { ...this.startCell },
       passed: [...this.passed],
       spent: [...this.spent],
+      goal: this.goal,
+      wordsPlayed: this.wordsPlayed,
+      over: this.over ? { ...this.over, winners: [...this.over.winners] } : null,
       days: this.days.map((d) => ({ day: d.day, scores: d.scores.map((x) => ({ ...x })) })),
       dayOpenedAt: this.dayOpenedAt ?? null,
       dayEndVote: this.dayEndVote ? { ...this.dayEndVote, agreed: [...this.dayEndVote.agreed] } : null,
@@ -1474,6 +1583,9 @@ export class Game {
     if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
     game.passed = new Set(data.passed ?? []);
     game.spent = new Set(data.spent ?? []);
+    game.goal = data.goal ?? null;
+    game.wordsPlayed = data.wordsPlayed ?? 0;
+    game.over = data.over ? { ...data.over, winners: [...(data.over.winners ?? [])] } : null;
     game.days = (data.days ?? []).map((d) => ({ day: d.day, scores: (d.scores ?? []).map((x) => ({ ...x })) }));
     game.dayOpenedAt = data.dayOpenedAt ?? null;
     game.dayEndVote = data.dayEndVote ? { ...data.dayEndVote, agreed: [...data.dayEndVote.agreed] } : null;

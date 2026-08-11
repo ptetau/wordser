@@ -193,3 +193,103 @@ test('a mushroom leaves every word it touches real', () => {
     }
   }
 });
+
+// ------------------------------------------------------- playing to a target
+
+test('a game can be played to n words, and stops on the nth', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setMode({ playerId: 0, mode: 'free' });
+  assert.throws(() => g.setGoal({ playerId: 1, words: 3 }), /only the game admin/);
+  assert.throws(() => g.setGoal({ playerId: 0, words: 0.5 }), /between 1 and/);
+  g.setGoal({ playerId: 0, words: 3 });
+  assert.equal(g.wordsLeft, 3);
+
+  const { x, y } = g.startCell;
+  const lay = (id, row) => {
+    g.players[id].rack = ['a', 't'];
+    return g.place({ playerId: id, tiles: tilesFor('at', x, row) });
+  };
+  const first = lay(0, y);
+  assert.equal(first.wordsPlayed, 1);
+  assert.equal(first.wordsLeft, 2);
+  assert.equal(first.finished, null);
+  lay(1, y + 1);
+  assert.equal(g.wordsLeft, 1);
+  assert.equal(g.over, null);
+
+  const last = lay(0, y + 2);
+  assert.ok(last.finished, 'the third word ends it');
+  assert.equal(g.over.winners.length >= 1, true);
+  assert.equal(g.over.best, Math.max(...g.players.map((p) => p.score)));
+  assert.match(g.log.join('\n'), /word 3 of 3/);
+
+  // And nothing more can be played.
+  assert.throws(() => lay(1, y + 3), /the game is over/);
+  assert.throws(() => g.pass({ playerId: 1 }), /the game is over/);
+});
+
+test('a target can be lifted, and cannot be set below what is already down', () => {
+  const g = table(['Ana', 'Ben']);
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', g.startCell.x, g.startCell.y) });
+  assert.throws(() => g.setGoal({ playerId: 0, words: 1 }), /already down/);
+  g.setGoal({ playerId: 0, words: 9 });
+  g.setGoal({ playerId: 0, words: null });
+  assert.equal(g.goal, null);
+  assert.equal(g.wordsLeft, null);
+  assert.match(g.log.join('\n'), /no finish line/);
+});
+
+test('the target and the tally survive a round trip, and a restart resets the tally', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setGoal({ playerId: 0, words: 5 });
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', g.startCell.x, g.startCell.y) });
+  const back = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())), { dictionary: anything });
+  assert.equal(back.goal, 5);
+  assert.equal(back.wordsPlayed, 1);
+  assert.equal(back.wordsLeft, 4);
+
+  back.restart({ playerId: 0 });
+  assert.equal(back.wordsPlayed, 0, 'a fresh game counts from nothing');
+  assert.equal(back.goal, 5, 'but the match is still to five');
+  assert.equal(back.over, null);
+});
+
+// ----------------------------------------------------------------- forfeiting
+
+test('forfeiting takes your seat away and gives your letters back', () => {
+  const g = table(['Ana', 'Ben', 'Cleo']);
+  const bagBefore = g.bag.pool.length;
+  const held = g.players[1].rack.length;
+  const r = g.forfeit({ playerId: 1 });
+
+  assert.equal(r.forfeited, 'Ben');
+  assert.deepEqual(g.players.map((p) => p.name), ['Ana', 'Cleo']);
+  assert.equal(g.players[1].id, 1, 'the seats close up');
+  assert.equal(g.bag.pool.length, bagBefore + held);
+  assert.match(g.log.join('\n'), /Ben forfeited/);
+  assert.equal(g.over, null, 'two are still playing');
+  assert.deepEqual(r.map, [0, null, 1]);
+});
+
+test('the last player standing wins when everyone else gives up', () => {
+  const g = table(['Ana', 'Ben']);
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', g.startCell.x, g.startCell.y) });
+  g.forfeit({ playerId: 1 });
+  assert.ok(g.over, 'the game should be over');
+  assert.deepEqual(g.over.winners, ['Ana']);
+  assert.match(g.log.join('\n'), /Ben forfeited/);
+  assert.throws(() => g.forfeit({ playerId: 0 }), /already over/);
+});
+
+test('the admin can forfeit without handing the crown over first', () => {
+  const g = table(['Ana', 'Ben', 'Cleo']);
+  assert.equal(g.isAdmin(0), true);
+  g.forfeit({ playerId: 0 });
+  assert.deepEqual(g.players.map((p) => p.name), ['Ben', 'Cleo']);
+  assert.equal(g.adminId, 0, 'the crown passes to the first human still playing');
+  assert.equal(g.isAdmin(0), true);
+  assert.match(g.log.join('\n'), /Ben runs the game now/);
+});

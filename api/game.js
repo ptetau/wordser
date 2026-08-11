@@ -21,7 +21,9 @@ const MAX_PLAYERS = 16;
 // Moves that leave the turn where it is, so the robots don't get to answer
 // them. Everything that puts letters on the board — placing, swapping — is
 // a play and is not on this list.
-const NON_TURN_MOVES = ['choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart'];
+const NON_TURN_MOVES = [
+  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode', 'skip',
+];
 
 let dictionaryPromise;
 const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());
