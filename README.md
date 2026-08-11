@@ -39,7 +39,9 @@ the nearest word instead, along the axis that word lies on, so spelling and
 then sliding with the arrow keys walks you into it. Space or the direction
 button overrides it. The placement controls are labelled (**✕ cancel · → dir · ⌫ undo ·
 ✓ play**), and ✓ carries the score, greying out with the reason when the
-word won't do. Whose turn it is is written at the top of Actions. The view stays where you
+word won't do. Whose go it is is on a plaque in the top-left corner of the board — the
+current player's name, large enough to settle an argument across a table —
+and every seat in the players list is tagged **to play** or **waiting**. The view stays where you
 put it; switch on *Glide the view to each new word* under the table's rules
 if you would rather it follow the play. Drag to
 pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
@@ -53,10 +55,13 @@ mostly the game; open the fold any time and it stays open. The arrow keys drive 
 type to start a word at the cursor, press Enter on a tile to steal/mutate
 it, and `+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
 drag a tile into any of them, including the empty ones, and it stays where
-you put it. Laying out `C _ T` with a hole in the middle is how you see the
-play before you make it. Dragging works mid-word too, and a letter you have
-already placed leaves its slot open rather than closing the tray up. ⇄
-shuffle rearranges the lot. Your name
+you put it — slots are addresses, so two tiles trade places rather than the
+row shuffling along. Laying out `C _ T` with a hole in the middle is how you
+see the play before you make it. A tile can also be dragged **out of the
+tray and onto the board**, where it starts a word on that cell or carries on
+the one you're spelling. Dragging works mid-word, and a letter already
+placed leaves its slot open rather than closing the tray up. ⇄ shuffle
+rearranges the lot. Your name
 is remembered between visits, and a fresh game starts with the cursor
 already on the ★. Controls you have never used carry a slow glint until you
 try them once. **Add CPU player 🤖** works in both modes: local games
@@ -66,6 +71,10 @@ search. The game wears the Parlour look (mahogany tiles on green baize);
 alternative themes live in `public/themes/` for anyone who wants to swap. The
 bonus fruit are drawn with canvas paths rather than emoji (`public/fruit.js`),
 so they look the same on every device and match the board's own palette.
+They fidget, too: one fruit at a time, every few seconds, does a single
+cheeky thing — a shimmy, a hop, a roll — and then sits still, so the board
+has some life in it without turning into a screensaver or a permanent frame
+loop.
 
 ```sh
 npm test           # engine + API test suite (node --test, no dependencies)
@@ -170,7 +179,9 @@ npm test           # engine + API test suite (node --test, no dependencies)
   points, 🍌 banana deals you a completely fresh rack, and 🥝 kiwi hands you
   a wildcard. Every one of those letters is drawn from the day's bag — a
   fruit whose letter has run out simply fizzles, and the six letters you
-  turn down from a cherry go straight back in.
+  turn down from a cherry go straight back in. Nothing announces what has
+  appeared: the board shows a fruit, and what it gives is for the player who
+  eats it to find out.
 - **Running the table.** Whoever starts the game is its **admin 👑** (never
   a CPU seat — the first human to join takes it instead). The admin can
   **remove** any other player, whose letters go back into the day's bag and

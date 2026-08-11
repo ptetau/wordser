@@ -654,7 +654,8 @@ export class Game {
       if (this.#fruitDistance(x, y) < FRUIT_SPACING) continue;
       const type = this.#rollFruitType();
       this.fruits.set(k, type);
-      this.log.push(`a ${type} ${FRUIT_EMOJI[type]} appeared`);
+      // No announcement: which fruit is which is for the board to say and
+      // for a player to find out by eating it, not for the log to give away.
       return { x, y, type };
     }
     return null;

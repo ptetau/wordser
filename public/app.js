@@ -355,12 +355,21 @@ function render() {
         // Fruit yield while you are spelling: your pending letters and the
         // cursor own the stage until you commit.
         const key = Board.key(x, y);
+        const up = anticAt(key);
+        if (up) {
+          ctx.save();
+          ctx.translate(cx + up.dx * c, cy + up.dy * c);
+          ctx.rotate(up.rot);
+          ctx.scale(up.sx, up.sy);
+          ctx.translate(-cx, -cy);
+        }
         drawFruit(ctx, fruit, cx, cy, c * 0.32, {
           spawn: spawnPhase(key),
           alpha: placement ? 0.62 : 1,
           t: performance.now() / 1000,
           seed: (wrapCoord(x) * 7 + wrapCoord(y) * 13) % 17, // its own rhythm
         });
+        if (up) ctx.restore();
       } else if (isStart) {
         ctx.fillStyle = T().star;
         ctx.font = `${Math.floor(c * 0.55)}px system-ui`;
@@ -424,6 +433,15 @@ function render() {
     ctx.stroke();
   }
 
+  // A tile carried over the board: show the cell it would land on.
+  if (dropCell) {
+    const [cx, cy] = hexCenter(dropCell.x, dropCell.y);
+    hexPath(cx, cy, c * 0.47);
+    ctx.strokeStyle = game.board.get(dropCell.x, dropCell.y) ? T().lastMove : T().cursor;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
   if (kbCursor && !placement) {
     const [cx, cy] = hexCenter(kbCursor.x, kbCursor.y);
     hexPath(cx, cy, c * 0.46);
@@ -455,12 +473,17 @@ function renderPlayers() {
     const div = document.createElement('div');
     div.className = 'player';
     if (p.id === currentPlayer) div.classList.add('current');
-    const mustWait = game.lastPlayerId === p.id;
-    if (mustWait) div.classList.add('waiting');
+    // Every seat says where it stands: one is up, the rest are waiting.
+    const theirTurn = game.isTheirTurn(p.id);
+    div.classList.add(theirTurn ? 'to-play' : 'waiting');
     const you = online() && p.id === session.playerId ? ' <small>(you)</small>' : '';
     const crown = game.isAdmin(p.id) ? ' <span title="game admin">👑</span>' : '';
+    const tag = theirTurn
+      ? '<span class="tag now">to play</span>'
+      : '<span class="tag">waiting</span>';
     div.innerHTML = `
-      <span class="name">${esc(p.name)}${crown}${you}${mustWait ? ' <small>(waiting)</small>' : ''}</span>
+      <span class="name">${esc(p.name)}${crown}${you}</span>
+      ${tag}
       <span class="stars">${'★'.repeat(p.stars)}</span>
       <span class="score">${p.score}</span>`;
     if (!online()) {
@@ -572,6 +595,7 @@ function renderRack() {
     t.className = 'tile' + (show === BLANK ? ' blank' : '');
     if (exchanging?.picks.includes(idx)) t.classList.add('selected');
     t.innerHTML = show === BLANK ? '★<sub>0</sub>' : `${show}<sub>${LETTER_VALUES[show]}</sub>`;
+    t.dataset.letter = show;
     t.onclick = () => rackTap(show, idx);
     box.appendChild(t);
   });
@@ -607,15 +631,6 @@ function layoutFor(p) {
   }
   rackLayouts.set(p.id, next);
   return next;
-}
-
-/** Move a tile to another slot, sliding whatever is in the way along. */
-function moveInLayout(p, from, to) {
-  const layout = rackLayouts.get(p.id);
-  if (!layout || from === to) return;
-  const [tile] = layout.splice(from, 1);
-  layout.splice(to, 0, tile);
-  layout.length = RACK_MAX;
 }
 
 function rackTap(letter, index) {
@@ -1007,6 +1022,40 @@ function renderTurn() {
     : `<b>${esc(game.players[me].name)}</b> to play${game.players.length > 1 ? ' — pass the device' : ''}`;
 }
 
+/**
+ * The plaque on the board: whose go it is, large, where everyone in the
+ * room is already looking. It only animates when the answer changes, so it
+ * doesn't twitch on every three-second poll.
+ */
+let namePlated = null;
+function renderNameplate() {
+  const el = $('nameplate');
+  const me = online() ? session.playerId : currentPlayer;
+  if (!game.players.length) {
+    el.hidden = true;
+    namePlated = null;
+    return;
+  }
+  const up = waitingOn(game);
+  const mine = up != null && up.id === me;
+  const who = up ? up.name : 'Free-for-all';
+  const says = up
+    ? mine
+      ? 'your turn'
+      : 'to play'
+    : "anyone's go";
+  el.hidden = false;
+  el.classList.toggle('mine', mine);
+  if (namePlated !== `${who}|${says}`) {
+    namePlated = `${who}|${says}`;
+    el.querySelector('.who').textContent = who;
+    el.querySelector('.says').textContent = says;
+    el.classList.remove('fresh');
+    void el.offsetWidth; // restart the entrance
+    el.classList.add('fresh');
+  }
+}
+
 function renderDayVote() {
   const el = $('day-vote');
   const v = game.dayEndVote;
@@ -1038,6 +1087,7 @@ function renderDayVote() {
 }
 
 function refresh() {
+  renderNameplate();
   renderTurn();
   renderDayVote();
   renderPlayers();
@@ -1701,6 +1751,93 @@ function noteFruit() {
 }
 let seenBoardOnce = false;
 
+// -------------------------------------------------------------- fruit antics
+// Fruit that never move are scenery. Fruit that all bob together are a
+// screensaver. So one at a time, every few seconds, a single fruit does one
+// cheeky thing — a shimmy, a hop, a roll, a squash — and then sits still
+// again. The frame loop runs for the second or so it takes and stops.
+const ANTIC_MS = 820;
+const ANTIC_KINDS = ['shimmy', 'hop', 'roll', 'squash', 'peek'];
+const ANTIC_GAP = [1800, 5200]; // ms between one fruit's turn and the next
+let antic = null; // { key, kind, at }
+let anticLoop = null;
+let anticTimer = null;
+
+const anticRand = (a, b) => a + Math.random() * (b - a);
+
+/** Is any wrapped copy of world column/row `v` inside the visible span? */
+const spanHas = (v, a, b) => a + (((v - a) % WORLD) + WORLD) % WORLD <= b;
+
+/** Fruit currently on screen — the only ones worth animating. */
+function fruitsInView() {
+  const s = cam.cell;
+  const x0 = Math.floor(cam.x / s) - 1;
+  const x1 = Math.ceil((cam.x + canvas.clientWidth) / s) + 1;
+  const y0 = Math.floor(cam.y / s) - 1;
+  const y1 = Math.ceil((cam.y + canvas.clientHeight) / s) + 1;
+  return [...game.fruits.keys()].filter((k) => {
+    const [fx, fy] = k.split(',').map(Number);
+    return spanHas(fx, x0, x1) && spanHas(fy, y0, y1);
+  });
+}
+
+function scheduleAntic() {
+  clearTimeout(anticTimer);
+  if (reducedMotion?.matches) return;
+  anticTimer = setTimeout(() => {
+    const candidates = document.hidden ? [] : fruitsInView();
+    if (candidates.length) {
+      antic = {
+        key: candidates[Math.floor(Math.random() * candidates.length)],
+        kind: ANTIC_KINDS[Math.floor(Math.random() * ANTIC_KINDS.length)],
+        at: performance.now(),
+      };
+      if (anticLoop === null) {
+        const step = () => {
+          render();
+          if (antic && performance.now() - antic.at < ANTIC_MS) {
+            anticLoop = requestAnimationFrame(step);
+          } else {
+            antic = null;
+            anticLoop = null;
+            render();
+          }
+        };
+        anticLoop = requestAnimationFrame(step);
+      }
+    }
+    scheduleAntic();
+  }, anticRand(...ANTIC_GAP));
+}
+
+/** What this fruit is up to right now, if anything. */
+function anticAt(key) {
+  if (!antic || antic.key !== key) return null;
+  const u = (performance.now() - antic.at) / ANTIC_MS;
+  if (u >= 1) return null;
+  // Everything fades in and out, so nothing starts or stops with a jolt.
+  const ease = Math.sin(Math.PI * Math.min(1, u * 1.02)) ** 0.7;
+  const TAU = Math.PI * 2;
+  switch (antic.kind) {
+    case 'shimmy':
+      return { dx: Math.sin(u * TAU * 4) * 0.22 * ease, dy: 0, rot: 0, sx: 1, sy: 1 };
+    case 'hop': {
+      const n = Math.abs(Math.sin(u * Math.PI * 2.5));
+      return { dx: 0, dy: -n * 0.42 * ease, rot: Math.sin(u * TAU * 2) * 0.12 * ease, sx: 1, sy: 1 };
+    }
+    case 'roll':
+      return { dx: Math.sin(u * TAU) * 0.3 * ease, dy: 0, rot: Math.sin(u * TAU) * 0.9 * ease, sx: 1, sy: 1 };
+    case 'squash': {
+      const s = Math.sin(u * Math.PI * 3) * 0.2 * ease;
+      return { dx: 0, dy: s * 0.4, rot: 0, sx: 1 + s, sy: 1 - s };
+    }
+    default: { // peek: a quick lean out and back, like it heard its name
+      const n = Math.sin(u * Math.PI) * ease;
+      return { dx: n * 0.34, dy: -n * 0.1, rot: n * 0.4, sx: 1, sy: 1 };
+    }
+  }
+}
+
 // ------------------------------------------------------------ camera flight
 const FLY_MS = 500;
 // Chasing the camera around is disorienting, so it stays put unless asked.
@@ -2082,10 +2219,15 @@ $('add-cpu').addEventListener('click', async () => {
   showPanelTop();
 });
 
-// Drag rack tiles to rearrange them. Only when nothing is being spelled, so
-// the visible tiles map one-to-one onto the rack array.
+// ------------------------------------------------------------ dragging tiles
+//
+// A tile lifts off the tray under a floating ghost, which is free of the
+// panel's scroll box and can therefore be carried anywhere: onto another
+// slot (the two trade places — slots are addresses, they don't shuffle
+// along), or onto the board, where it starts or continues a word.
 let rackDrag = null;
 let suppressRackTap = false;
+let dropCell = null; // board cell the carried tile would land on
 const rackBox = $('rack');
 const RACK_SLIDE_MS = 160;
 const stillMotion = () => reducedMotion?.matches;
@@ -2116,22 +2258,70 @@ function slideRack(before, { skip = null, sourceOf = (i) => i } = {}) {
 }
 
 /**
- * Where the carried tile belongs: count how many of the others the pointer
- * has passed, in reading order. Counting is monotonic in pointer position,
- * so the gap can't flicker between two slots the way nearest-tile does —
- * and it ignores the carried tile, whose own position is what moves.
+ * Which slot the pointer is over, or null once it has left the tray. The
+ * nearest slot wins so the 6px gutters between them aren't dead ground.
  */
-function slotUnder(clientX, clientY, dragged) {
-  let idx = 0;
-  for (const el of rackBox.children) {
-    if (el === dragged) continue;
+function slotUnder(x, y) {
+  const box = rackBox.getBoundingClientRect();
+  const pad = 8;
+  if (x < box.left - pad || x > box.right + pad) return null;
+  if (y < box.top - pad || y > box.bottom + pad) return null;
+  let best = null;
+  let bestD = Infinity;
+  [...rackBox.children].forEach((el, i) => {
     const r = el.getBoundingClientRect();
-    const midY = r.top + r.height / 2;
-    const aRowAbove = midY < clientY - r.height / 2;
-    const sameRow = Math.abs(midY - clientY) <= r.height / 2;
-    if (aRowAbove || (sameRow && r.left + r.width / 2 < clientX)) idx++;
+    const dx = Math.max(r.left - x, 0, x - r.right);
+    const dy = Math.max(r.top - y, 0, y - r.bottom);
+    const d = Math.hypot(dx, dy);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** The board cell under the pointer, or null when it isn't over the board. */
+function boardCellUnder(x, y) {
+  const r = canvas.getBoundingClientRect();
+  if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+  return cellAt(x - r.left, y - r.top);
+}
+
+/** Two slots trade contents. Nothing else in the tray moves. */
+function swapInLayout(p, a, b) {
+  const layout = rackLayouts.get(p.id);
+  if (!layout || a === b) return;
+  [layout[a], layout[b]] = [layout[b], layout[a]];
+}
+
+/**
+ * Land a dragged letter on the board: it begins a word there, or carries on
+ * the one being spelled when dropped on the cell the arrow is pointing at.
+ */
+function dropOnBoard(letter, cell) {
+  if (!requirePlayer()) return;
+  if (game.board.get(cell.x, cell.y)) {
+    status('there is a letter there already — drop on an empty cell', 'error');
+    return;
   }
-  return idx;
+  const carryOn = placement && (placement.entries.length > 0 || placement.stealing);
+  if (carryOn) {
+    const n = nextCell();
+    if (n.x !== cell.x || n.y !== cell.y) {
+      status('drop it on the arrow to carry this word on, or ✕ to start elsewhere', '');
+      return;
+    }
+  } else {
+    placement = startPlacement(cell.x, cell.y);
+    kbCursor = { x: cell.x, y: cell.y };
+  }
+  if (letter === BLANK) {
+    pickingBlank = 'placement';
+    refresh();
+    return;
+  }
+  typeLetter(letter);
 }
 
 rackBox.addEventListener('pointerdown', (e) => {
@@ -2145,14 +2335,17 @@ rackBox.addEventListener('pointerdown', (e) => {
   rackDrag = {
     tile,
     idx: [...rackBox.children].indexOf(tile),
-    at: [...rackBox.children].indexOf(tile), // where it sits right now
+    letter: tile.dataset.letter,
     grabX: e.clientX - r.left,
     grabY: e.clientY - r.top,
-    home: r,
+    w: r.width,
+    h: r.height,
     pid: e.pointerId,
     x0: e.clientX,
     y0: e.clientY,
     moved: false,
+    ghost: null,
+    slot: null,
   };
 });
 
@@ -2162,57 +2355,60 @@ rackBox.addEventListener('pointermove', (e) => {
   if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > 10) {
     d.moved = true;
     d.tile.setPointerCapture(e.pointerId);
-    d.tile.classList.add('dragging');
+    d.tile.classList.add('lifted');
     rackBox.classList.add('arranging'); // light the empty slots as targets
+    const ghost = d.tile.cloneNode(true);
+    ghost.className = 'tile ghost' + (d.letter === BLANK ? ' blank' : '');
+    ghost.style.width = `${d.w}px`;
+    ghost.style.height = `${d.h}px`;
+    document.body.appendChild(ghost);
+    d.ghost = ghost;
   }
   if (!d.moved) return;
 
-  // Open a gap where it would land, so the tray makes room as you go.
-  const slot = slotUnder(e.clientX, e.clientY, d.tile);
-  if (slot !== d.at) {
-    const before = rackRects();
-    const others = [...rackBox.children].filter((el) => el !== d.tile);
-    rackBox.insertBefore(d.tile, others[slot] ?? null);
-    slideRack(before, { skip: d.tile, sourceOf: (i) => i });
-    d.at = [...rackBox.children].indexOf(d.tile);
-    // Its home moved, so re-anchor the tile under the finger.
-    const t = d.tile.style.transform;
-    d.tile.style.transform = '';
-    d.home = d.tile.getBoundingClientRect();
-    d.tile.style.transform = t;
+  d.ghost.style.transform =
+    `translate(${e.clientX - d.grabX}px, ${e.clientY - d.grabY}px)`;
+
+  const slot = slotUnder(e.clientX, e.clientY);
+  if (slot !== d.slot) {
+    for (const el of rackBox.children) el.classList.remove('target');
+    if (slot !== null) rackBox.children[slot]?.classList.add('target');
+    d.slot = slot;
   }
-  d.tile.style.transform =
-    `translate(${e.clientX - d.home.left - d.grabX}px, ${e.clientY - d.home.top - d.grabY}px)`;
+  const cell = slot === null ? boardCellUnder(e.clientX, e.clientY) : null;
+  const changed = (cell?.x ?? null) !== (dropCell?.x ?? null) || (cell?.y ?? null) !== (dropCell?.y ?? null);
+  dropCell = cell;
+  if (changed) render();
 });
 
 function endRackDrag(e) {
   if (!rackDrag || e.pointerId !== rackDrag.pid) return;
   const d = rackDrag;
   rackDrag = null;
-  d.tile.classList.remove('dragging');
+  const landing = dropCell;
+  dropCell = null;
+  d.tile.classList.remove('lifted');
   rackBox.classList.remove('arranging');
-  if (!d.moved) {
-    d.tile.style.transform = '';
-    return; // a plain tap: let the click handler spell it
-  }
+  for (const el of rackBox.children) el.classList.remove('target');
+  d.ghost?.remove();
+  if (!d.moved) return; // a plain tap: let the click handler spell it
+
   suppressRackTap = true;
   setTimeout(() => (suppressRackTap = false), 0);
 
-  // Let go and it settles into the gap rather than snapping.
-  if (stillMotion()) {
-    d.tile.style.transform = '';
-  } else {
-    d.tile.style.transition = `transform ${RACK_SLIDE_MS}ms ease`;
-    d.tile.style.transform = '';
-  }
-
   const p = game.players[currentPlayer];
-  if (p) moveInLayout(p, d.idx, d.at);
-  // Re-render once it has landed, so handlers pick up the new indices.
-  setTimeout(() => {
-    d.tile.style.transition = '';
+  if (landing) {
+    dropOnBoard(d.letter, landing);
+    render();
+    return;
+  }
+  if (p && d.slot !== null && d.slot !== d.idx) {
+    const before = rackRects();
+    swapInLayout(p, d.idx, d.slot);
     renderRack();
-  }, stillMotion() ? 0 : RACK_SLIDE_MS);
+    // Both tiles slide to their new homes; every other slot stays put.
+    slideRack(before, { sourceOf: (i) => (i === d.idx ? d.slot : i === d.slot ? d.idx : i) });
+  }
 }
 rackBox.addEventListener('pointerup', endRackDrag);
 rackBox.addEventListener('pointercancel', endRackDrag);
@@ -2551,6 +2747,7 @@ refresh();
 // Whatever state we opened in, the loading notice must not outlive the load.
 renderAccount();
 renderGames();
+scheduleAntic(); // the fruit start playing up once everything else is ready
 if (account.get()) refreshGames();
 if (pendingJoinId) status('you were invited to this game — enter your name, then join');
 else if (online()) status('welcome back');
@@ -2567,6 +2764,7 @@ window.wordser = {
   lastWordKeys,
   startFlourish,
   get flourishing() { return flourishing; },
+  get antic() { return antic; },
   cam,
   showMenu,
   refreshGames,

@@ -40,6 +40,54 @@ main { display: flex; height: 100%; }
 }
 #board.placing { cursor: text; }
 
+/* --------------------------------------------------------- the nameplate
+   Whose go it is, said once and said properly: a brass plaque in the corner
+   of the board, where everyone in the room is already looking. */
+#nameplate {
+  position: absolute; top: 12px; left: 12px; z-index: 3;
+  pointer-events: none;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 8px 16px 9px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--panel) 88%, transparent),
+    color-mix(in srgb, #000 62%, transparent)
+  );
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 226, 168, 0.16);
+  backdrop-filter: blur(3px);
+  max-width: min(46vw, 340px);
+}
+#nameplate[hidden] { display: none; }
+#nameplate .who {
+  font-size: 21px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.15;
+  color: var(--accent);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6), 0 0 16px color-mix(in srgb, var(--accent) 40%, transparent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#nameplate .says {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 2.4px;
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+}
+/* Your own go reads green, the way the ✓ does. */
+#nameplate.mine { border-color: color-mix(in srgb, var(--good) 60%, transparent); }
+#nameplate.mine .who {
+  color: var(--good);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6), 0 0 16px color-mix(in srgb, var(--good) 40%, transparent);
+}
+@keyframes nameplate-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+#nameplate.fresh { animation: nameplate-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+@media (prefers-reduced-motion: reduce) { #nameplate.fresh { animation: none; } }
+@media (max-width: 720px) {
+  #nameplate { top: 8px; left: 8px; padding: 6px 12px 7px; }
+  #nameplate .who { font-size: 17px; }
+  #nameplate .says { font-size: 9.5px; letter-spacing: 2px; }
+}
+
 #panel {
   width: 330px;
   flex-shrink: 0;
@@ -124,7 +172,15 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 }
 .player.pickable { cursor: pointer; }
 .player.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
-.player.waiting { opacity: 0.55; }
+.player.to-play { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.player .tag {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--muted); flex-shrink: 0;
+}
+.player .tag.now {
+  color: #22190a; background: var(--accent);
+  padding: 2px 6px; border-radius: 4px; font-weight: 700;
+}
 .player .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player .stars { color: var(--accent); letter-spacing: 1px; }
 .player .score { font-variant-numeric: tabular-nums; color: var(--good); }
@@ -358,12 +414,17 @@ details li { margin: 5px 0; }
   #shuffle { min-height: 44px; }
 }
 
-.tile.dragging {
-  z-index: 6; position: relative; pointer-events: none;
-  /* Picked up off the tray: lifted, tilted a touch, and casting a shadow. */
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
-  filter: brightness(1.06);
+/* The carried tile is a clone parked on the body, so it can leave the
+   panel's scroll box and be dropped on the board. The slot it came from
+   stays where it is, dimmed, holding its place. */
+.tile.ghost {
+  position: fixed; left: 0; top: 0; z-index: 80; pointer-events: none;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.5);
+  filter: brightness(1.08);
+  transform-origin: center;
 }
+.tile.lifted { opacity: 0.25; }
+#rack .target { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 #rack .tile { touch-action: none; }
 body.mode-exchange #rack, body.mode-steal #rack {
