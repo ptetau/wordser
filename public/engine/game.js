@@ -45,9 +45,9 @@ export const FRUIT_EMOJI = {
   mushroom: '🍄',
 };
 const FRUIT_TABLE = [
-  ['lemon', 0.2], ['cherry', 0.17], ['chilli', 0.14],
+  ['lemon', 0.15], ['cherry', 0.15], ['chilli', 0.14],
   ['grape', 0.14], ['banana', 0.14], ['kiwi', 0.14],
-  ['mushroom', 0.07], // the rare one, and the loudest
+  ['mushroom', 0.14],
 ];
 // The mushroom's reach: a fresh bag's worth of letters spent rewriting the
 // words within this many cells of it, and never more words than this.
@@ -856,8 +856,8 @@ export class Game {
         this.log.push(
           r.rewritten
             ? `${player.name} ate a mushroom ${FRUIT_EMOJI.mushroom}: the board rewrote itself — ` +
-              `${r.rewritten} word${r.rewritten === 1 ? '' : 's'} changed, ` +
-              `${r.taken} letter${r.taken === 1 ? '' : 's'} to the rack`
+              `${r.rewritten} word${r.rewritten === 1 ? '' : 's'} changed, and ` +
+              `${r.returned} letter${r.returned === 1 ? '' : 's'} went into the bag for everyone`
             : `${player.name} ate a mushroom ${FRUIT_EMOJI.mushroom}, but nothing round here would budge`,
         );
       } else if (type === 'kiwi') {
@@ -879,7 +879,12 @@ export class Game {
    * rewrite as many of the words around it as those letters will stretch
    * to. Every word the changes touch must still be real — the board is left
    * legal, just not the way anyone left it — and every letter prised out
-   * goes to the player who ate it (rack first, then their day's bag).
+   * drops into the day's bag, where it belongs to everybody. Eating one is
+   * not a private windfall: it churns the board and restocks the table.
+   *
+   * This is the one thing in the game that adds letters to a day (see the
+   * conservation note in the README): a mushroom brings its own bagful and
+   * hands the displaced letters to the common pool.
    *
    * Bounded on purpose: the words within SHROOM_RADIUS, at most
    * SHROOM_WORDS of them, one substitution attempted per word. A mushroom
@@ -888,7 +893,7 @@ export class Game {
   #mushroom(player, ox, oy) {
     const shroomBag = new Bag(this.bag.rng);
     let rewritten = 0;
-    let taken = 0;
+    let returned = 0;
 
     // Every word with a cell inside the radius, nearest first.
     const found = new Map();
@@ -916,11 +921,10 @@ export class Game {
       const swapped = this.#rewriteWord(live, shroomBag);
       if (!swapped) continue;
       rewritten += 1;
-      if (player.rack.length < RACK_MAX) player.rack.push(swapped);
-      else this.bag.put(swapped);
-      taken += 1;
+      this.bag.put(swapped);
+      returned += 1;
     }
-    return { rewritten, taken };
+    return { rewritten, returned };
   }
 
   /**

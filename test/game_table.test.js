@@ -153,17 +153,22 @@ test('a mushroom rewrites the words around it and hands over the letters', () =>
   g.place({ playerId: 1, tiles: [{ x, y: y + 1, letter: 'd' }, { x, y: y + 2, letter: 'e' }] });
 
   const wasBoard = [...g.board.cells.entries()].map(([k, t]) => `${k}${t.letter}`).sort().join();
-  const rackBefore = g.players[0].rack.length;
   g.fruits.set(`${x + 1},${y + 1}`, 'mushroom');
   g.players[0].rack = ['z'];
+  g.bag.pool = []; // so the growth below is the mushroom's doing and nothing else
   g.place({ playerId: 0, tiles: [{ x: x + 1, y: y + 1, letter: 'z' }] });
 
   const nowBoard = [...g.board.cells.entries()].map(([k, t]) => `${k}${t.letter}`).sort().join();
   assert.notEqual(nowBoard, wasBoard, 'the board should have been rewritten');
   assert.match(g.log.join('\n'), /ate a mushroom/);
-  assert.match(g.log.join('\n'), /the board rewrote itself/);
-  assert.ok(g.players[0].rack.length > 0);
-  assert.ok(rackBefore >= 0);
+  assert.match(g.log.join('\n'), /went into the bag for everyone/);
+
+  // The prised-off letters are everybody's, not the eater's.
+  const line = g.log.find((l) => /went into the bag/.test(l));
+  const returned = Number(/and (\d+) letter/.exec(line)[1]);
+  assert.ok(returned > 0);
+  assert.equal(g.bag.pool.length, returned, 'they all went into the day bag');
+  assert.equal(g.players[0].rack.length, 0, 'and none of them into the rack');
 });
 
 test('a mushroom leaves every word it touches real', () => {

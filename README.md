@@ -125,14 +125,18 @@ npm test           # engine + API test suite (node --test, no dependencies)
   the day's bag runs dry there are no more draws until tomorrow (swapping
   still works — board letters become the economy). Placing 7+ tiles earns a
   50-point bingo.
-- **Every letter comes from the bag.** Nothing in the game mints a tile:
+- **Every letter comes from the bag** — with one exception, below.
+  Otherwise nothing in the game mints a tile:
   fruits draw theirs from the day's set like everything else, and letters
   that leave a rack without reaching the board — cherry offers you turn
   down, the rack of a player who is removed — fall back into the bag for
   someone else to draw. Within a day the hundred tiles
   are only ever moved between bag, racks and board. A new day is the one
   exception: it opens a brand-new set, and only the letters already on the
-  board carry over.
+  board carry over. The other is the mushroom 🍄, which brings a bagful of
+  its own and pours what it displaces into the day's bag, where it belongs
+  to everybody. Eating one is not a private windfall: it churns the board
+  and restocks the table for all of you.
 - **Exchanging and passing.** Instead of playing a word, swap 1–7 rack
   letters back into the bag for fresh ones (needs the bag to hold at
   least that many), or pass outright. Both use your turn. When the bag

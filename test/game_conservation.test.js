@@ -262,6 +262,9 @@ test('a new day starts a brand-new set; only board letters carry over', () => {
 // land often enough to be worth fuzzing.
 
 const anything = { has: (w) => typeof w === 'string' && w.length > 0 };
+// Every fruit but the mushroom only ever moves letters that are already in
+// the day's hundred. The mushroom brings its own bag, which is the point of
+// it, so it is fuzzed separately below rather than breaking the census here.
 const FRUIT_TYPES = ['lemon', 'chilli', 'cherry', 'grape', 'banana', 'kiwi'];
 
 /** Play `turns` random moves, checking the census after each one. */
@@ -372,4 +375,26 @@ test('thousands of random moves never mint or destroy a letter', () => {
   assert.ok(seen.exchange > 50, `too few exchanges: ${seen.exchange}`);
   assert.ok(seen.choose > 5, `too few cherry choices: ${seen.choose}`);
   assert.ok(seen.fruit > 100, `too few fruits eaten: ${seen.fruit}`);
+});
+
+test('a mushroom is the one thing that adds letters, and it adds them to the bag', () => {
+  const g = makeGame(['cat', 'cot', 'cut', 'bat', 'bot', 'oat', 'at', 'ae', 'oe']);
+  rig(g, 0, ['c', 'a', 't', 'e', 'e', 'e', 'e']);
+  rig(g, 1, ['e']);
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  const boardBefore = g.board.cells.size;
+  const totalBefore = total(g);
+
+  g.fruits.set('1,1', 'mushroom');
+  g.place({ playerId: 1, tiles: [{ x: 1, y: 1, letter: 'e' }] });
+
+  const line = g.log.find((l) => /went into the bag/.test(l));
+  if (!line) return; // nothing round there would budge; nothing to check
+  const returned = Number(/and (\d+) letter/.exec(line)[1]);
+  assert.ok(returned > 0);
+
+  // A rewrite swaps letters in place, so the board keeps its size — and the
+  // day's hundred has grown by exactly what the mushroom brought with it.
+  assert.equal(g.board.cells.size, boardBefore + 1, 'one cell for the tile just played');
+  assert.equal(total(g), totalBefore + returned, 'the mushroom minted exactly what it displaced');
 });
