@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, GameError } from '../public/engine/game.js';
+import { Game } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
 import { mulberry32 } from '../public/engine/tiles.js';
 import { makeGame, tilesFor } from './helpers.js';

@@ -1,5 +1,5 @@
 import {
-  Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX, IDLE_SKIP_MS, waitingOn,
+  Game, GameError, FRUIT_EMOJI, RACK_MAX, IDLE_SKIP_MS, waitingOn,
 } from './engine/game.js';
 // Moves that leave your turn where it is. Everything that puts letters on
 // the board — placing, swapping — is a play, and is not among them.
@@ -325,6 +325,7 @@ function render() {
   };
 
   const lm = lastWordKeys();
+  const island = islandKeys(); // once per frame, not once per cell
   const lit = []; // centres of the last word's cells, haloed after the loop
 
   for (const [x, y] of visibleHexes()) {
@@ -366,7 +367,7 @@ function render() {
     if (tile) {
       // Letters on an older island are out of bounds until somebody bridges
       // out to them, and the board says so by letting them fade into it.
-      const off = !islandKeys().has(Board.key(x, y));
+      const off = !island.has(Board.key(x, y));
       if (off) ctx.globalAlpha = 0.42;
       drawTile(x, y, Board.effective(tile), { blank: !!tile.isBlank });
       if (off) ctx.globalAlpha = 1;
@@ -498,13 +499,12 @@ function nextCell() {
 const pendingAt = (x, y) => placement?.entries.find((e) => e.x === x && e.y === y);
 
 /**
- * Where a letter actually lands from the cursor. The cursor walks the line
- * a cell at a time and stops at the first one it can use: empty ground, a
- * letter that already says what you are typing (which plays for free), a
- * wildcard to redefine, or somebody else's letter to write over. Only your
- * own pending letters are stepped past.
+ * Where a letter actually lands from the cursor: the cursor's own cell,
+ * stepping past only your own pending letters. Whatever is sitting there
+ * is dealt with when the letter arrives — reused if it already says the
+ * same thing, redefined if it is a wildcard, written over otherwise.
  */
-function landingCell(letter = null) {
+function landingCell() {
   const [dx, dy] = DIRS[placement.dir];
   let { x, y } = nextCell();
   for (let guard = 0; guard < 64; guard++) {
@@ -680,7 +680,7 @@ function adminTools(p, me) {
       if (!p.away && !confirm(
         `Pass ${p.name}'s turns until they come back? They can take them back whenever they like.`,
       )) return;
-      doMove({ type: 'away', targetId: p.id, away: !p.away }, (r) =>
+      doMove({ type: 'away', targetId: p.id, away: !p.away, playerId: game.adminId }, (r) =>
         r.away
           ? `${p.name}'s turns will pass themselves 💤`
           : `${p.name} is back in the game 👋`,
@@ -1515,12 +1515,17 @@ function offerRestart(arrivals) {
   const box = $('cell-actions');
   const who = arrivals.join(' & ');
   box.innerHTML = `<b>${esc(who)} just arrived</b> — mid-game.
-    <div class="muted" style="margin-top:2px">Start again from nothing so everyone is level? You choose who leads off.</div>
+    <div class="muted" style="margin-top:2px">Start again from nothing so everyone is level? The opener is drawn out of the hat unless you name one.</div>
     <div id="restart-who" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
     <div class="place-controls">
       <button id="restart-no">✕<span class="lbl">carry on</span></button>
     </div>`;
   const row = $('restart-who');
+  const anyone = document.createElement('button');
+  anyone.className = 'mini';
+  anyone.textContent = '🎲 Anyone starts';
+  anyone.onclick = () => doRestart(null);
+  row.appendChild(anyone);
   for (const p of game.players) {
     if (p.isCpu) continue;
     const b = document.createElement('button');
@@ -1536,8 +1541,10 @@ function offerRestart(arrivals) {
 }
 
 function doRestart(firstId) {
-  const name = game.players[firstId]?.name ?? 'someone';
-  if (!confirm(`Start the whole game again? The board, the scores and the record all go, and ${name} leads off.`)) {
+  const who = firstId == null
+    ? 'somebody drawn out of the hat leads off'
+    : `${game.players[firstId]?.name ?? 'someone'} leads off`;
+  if (!confirm(`Start the whole game again? The board, the scores and the record all go, and ${who}.`)) {
     return;
   }
   // Round one screen whoever is holding it speaks for the table, so the
@@ -1546,7 +1553,14 @@ function doRestart(firstId) {
   doMove(
     { type: 'restart', firstId, playerId: game.adminId },
     (r) => `a fresh game — ${game.players[r.first].name} leads off ✦`,
-  );
+  ).then((r) => {
+    // Round one screen the device has to follow the draw, or whoever
+    // pressed the button is left holding a seat that cannot move.
+    if (r && !online()) {
+      currentPlayer = r.first;
+      refresh();
+    }
+  });
 }
 
 function adoptView(d) {
@@ -2610,7 +2624,7 @@ function flipDirection() {
 function typeLetter(letter, { preferBlank = false, silent = false, at = null } = {}) {
   const p = game.players[currentPlayer];
   if (!p) return false;
-  const cell = at ?? landingCell(letter);
+  const cell = at ?? landingCell();
   const sitting = game.board.get(cell.x, cell.y);
   const clearCell = () => {
     placement.entries = placement.entries.filter((e) => !(e.x === cell.x && e.y === cell.y));
@@ -3255,18 +3269,17 @@ $('goal-words').addEventListener('change', (e) => {
   );
 });
 
-/** Wipe the board and play again — asking the table who leads off. */
+/**
+ * Wipe the board and play again. Nobody is asked who starts: the opening
+ * word is worth having, so the hat decides. Naming an opener is still on
+ * offer where it belongs — the panel that appears when somebody joins
+ * mid-game, which is the moment a table actually cares who leads.
+ */
 function askRestart() {
   const me = online() ? session.playerId : currentPlayer;
   if (online() && !game.isAdmin(me)) return;
-  const humans = game.players.filter((p) => !p.isCpu);
-  const names = humans.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
-  const pick = humans.length > 1
-    ? prompt(`Who leads off the new game?\n${names}`, '1')
-    : '1';
-  if (pick === null) return;
-  const chosen = humans[Math.max(0, Math.min(humans.length - 1, Number(pick) - 1))];
-  doRestart(chosen?.id ?? me);
+  showMenu(null); // what happens next happens on the board, not in here
+  doRestart(null);
 }
 
 $('restart-game').addEventListener('click', askRestart);
@@ -3303,6 +3316,12 @@ $('end-day').addEventListener('click', () => {
   if (!confirm('End the day now? Scores are locked in, everyone gets a fresh rack, and the ★ moves.')) {
     return;
   }
+  showMenu(null); // the new day is out there, not in this panel
+  // Everyone is about to be dealt a fresh rack, and a half-made move is
+  // written against the old one — an exchange holds rack positions, which
+  // would land on somebody else's letters entirely.
+  cancelModes();
+  selected = null;
   const winners = game.startNewDay();
   status(
     winners.length
@@ -3344,6 +3363,7 @@ window.wordser = {
   cam,
   get placement() { return placement; },
   get swapping() { return swapping; },
+  get exchanging() { return exchanging; },
   setSwapping(s) {
     swapping = s;
     refresh();

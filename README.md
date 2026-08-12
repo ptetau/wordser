@@ -104,6 +104,20 @@ npm test           # engine + API test suite (node --test, no dependencies)
   instead of each bringing their own and doubling it at the join. 14
   divides the 448-cell world exactly 32 times, so the pattern meets itself
   at the seam too.
+- **A world of boards, and not all of them classic.** The premium squares
+  are laid out as 15×15 scrabble boards tiled edge to edge, each centred on
+  a double-word ★ and framed by the same shared triple-word rim — but what
+  is *inside* a board changes as you travel. Four layouts: **classic** (the
+  real thing), **spiral** (an arm winding out from the star, paying better
+  the further out you follow it), **wave** (ripples of letter bonuses, where
+  you go to spend a Q) and **big bag** (a hoard of triple- and double-letter
+  squares packed round the star with plain felt around it). Which board is
+  which comes from a smooth field over the board lattice, so they come in
+  regions of several boards rather than changing at every line — the map is
+  worth knowing, and worth crossing. Home — the board on the origin, where
+  every new game opens — is always classic. Every layout holds to the same
+  two limits: a triple-word never touches another, and every board pays out
+  at roughly the density of a real one.
 - **A premium pays once, ever.** The first letter to land on a premium
   square collects it, and the square is plain board from then on — a corner
   triple-word cannot be re-mined by writing over the same cell tomorrow.
@@ -250,6 +264,11 @@ npm test           # engine + API test suite (node --test, no dependencies)
   you nothing — and once that hundred runs low a fruit can come up empty and
   simply fizzle. Nothing announces what has appeared, either:
   the board shows a fruit, and the rest is for whoever gets there first.
+- **Who opens a fresh game.** Going first is worth having — the ★ is a
+  double-word and the opening word is the only one that cannot be built on
+  — so a restart draws the opener out of the hat rather than handing it to
+  whoever pressed the button. Naming one is still on offer where a table
+  actually cares: the panel that appears when somebody joins mid-game.
 - **Running the table.** Whoever starts the game is its **admin 👑** (never
   a CPU seat — the first human to join takes it instead). The admin can
   **remove** any other player, whose letters go back into the day's bag and

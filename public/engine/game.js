@@ -227,12 +227,16 @@ export class Game {
 
   /**
    * Start the whole game again from nothing: an empty board, a new bag,
-   * fresh racks, scores and records wiped, and whoever the admin nominates
-   * to lead off. The players keep their seats.
+   * fresh racks, scores and records wiped. The players keep their seats.
+   *
+   * Who leads off is drawn out of the hat unless the admin names somebody:
+   * going first is worth having — the ★ is a double-word and the opening
+   * word is the only one that cannot be built on — so it should not simply
+   * belong to whoever pressed the button.
    */
   restart({ playerId, firstId = null }) {
     this.#assertAdmin(playerId);
-    const first = firstId == null ? playerId : this.player(firstId).id;
+    const first = firstId == null ? this.#drawFirstPlayer() : this.player(firstId).id;
     this.board = new Board();
     this.fruits.clear();
     this.bag.refill();
@@ -269,6 +273,18 @@ export class Game {
     this.dayOpenedAt = this.now();
     this.log = [`a fresh game — ${this.player(first).name} leads off ✦`];
     return { first };
+  }
+
+  /**
+   * A seat at random to open a fresh game. Robots are left out — a game
+   * that opens with the robot playing to nobody is a strange way to start
+   * — unless robots are all there is.
+   */
+  #drawFirstPlayer() {
+    const humans = this.players.filter((p) => !p.isCpu);
+    const pool = humans.length ? humans : this.players;
+    if (!pool.length) fail('there is nobody to start');
+    return pool[Math.floor(this.bag.rng() * pool.length)].id;
   }
 
   /** True if this seat holds the game's admin rights. */

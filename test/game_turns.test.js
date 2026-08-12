@@ -1,9 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Game, GameError, IDLE_SKIP_MS, STAR_JUMP, turnBelongsTo, waitingOn,
+  Game, IDLE_SKIP_MS, STAR_JUMP, turnBelongsTo, waitingOn,
 } from '../public/engine/game.js';
-import { Dictionary } from '../public/engine/dictionary.js';
 import { WORLD } from '../public/engine/board.js';
 import { mulberry32 } from '../public/engine/tiles.js';
 import { makeGame, tilesFor } from './helpers.js';

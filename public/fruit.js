@@ -55,7 +55,7 @@ function body(ctx, path, fill, shade, lw) {
   ink(ctx, lw);
 }
 
-export function drawLemon(ctx, cx, cy, r) {
+function drawLemon(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.13);
   const fine = r > 7;
   ctx.save();
@@ -92,7 +92,7 @@ export function drawLemon(ctx, cx, cy, r) {
   }
 }
 
-export function drawCherry(ctx, cx, cy, r) {
+function drawCherry(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.13);
   const fine = r > 7;
   const bl = { x: cx - r * 0.44, y: cy + r * 0.36, r: r * 0.5 };
@@ -139,7 +139,7 @@ export function drawCherry(ctx, cx, cy, r) {
   }
 }
 
-export function drawChilli(ctx, cx, cy, r) {
+function drawChilli(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.13);
   const fine = r > 7;
   ctx.save();
@@ -194,7 +194,7 @@ const BERRIES = [
   [0, 0.7],
 ];
 
-export function drawGrape(ctx, cx, cy, r) {
+function drawGrape(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.11);
   const br = r * 0.34;
   ctx.beginPath(); // stalk
@@ -239,7 +239,7 @@ export function drawGrape(ctx, cx, cy, r) {
   }
 }
 
-export function drawBanana(ctx, cx, cy, r) {
+function drawBanana(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.13);
   const fine = r > 7;
   ctx.save();
@@ -280,7 +280,7 @@ export function drawBanana(ctx, cx, cy, r) {
   ctx.restore();
 }
 
-export function drawKiwi(ctx, cx, cy, r) {
+function drawKiwi(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.11);
   ctx.beginPath(); // fuzzy rind
   ctx.arc(cx, cy, r * 0.94, 0, TAU);
@@ -333,7 +333,7 @@ export function drawKiwi(ctx, cx, cy, r) {
  * something to the board rather than to your rack, so it wants to look a
  * little dangerous.
  */
-export function drawMushroom(ctx, cx, cy, r) {
+function drawMushroom(ctx, cx, cy, r) {
   const lw = Math.max(1, r * 0.1);
   const top = cy - r * 0.16;
   ctx.beginPath(); // stalk

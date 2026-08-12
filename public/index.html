@@ -47,7 +47,7 @@
       <div id="table-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Table rules">
         <div class="menu-head">
           <span>This table</span>
-          <button class="mini menu-close" data-close="table" aria-label="close">✕</button>
+          <button class="mini menu-close" aria-label="close">✕</button>
         </div>
         <div id="table-rules">
           <label id="mode-row" class="menu-toggle" hidden>
@@ -78,7 +78,7 @@
           <span>Your games</span>
           <span class="menu-head-tools">
             <button id="games-refresh" class="mini" title="refresh the list" aria-label="refresh the list">↻</button>
-            <button class="mini menu-close" data-close="games" aria-label="close">✕</button>
+            <button class="mini menu-close" aria-label="close">✕</button>
           </span>
         </div>
         <div id="my-games"></div>
@@ -90,7 +90,7 @@
       <div id="account-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Your account">
         <div class="menu-head">
           <span>Your account</span>
-          <button class="mini menu-close" data-close="account" aria-label="close">✕</button>
+          <button class="mini menu-close" aria-label="close">✕</button>
         </div>
         <div id="account-out">
           <p id="account-status" class="muted">Sign in and your games — and your turn alerts — follow you to any device.</p>
@@ -193,7 +193,7 @@
         <li>Nobody plays twice in a row. Games take turns by default; the admin can switch to free-for-all, and eight hours on your turn is skipped for you. A seat with no letters left passes itself.</li>
         <li><b>Holding things up?</b> Each seat says how long it has been quiet. The one with the turn carries <b>⏭</b> for the admin to move play on, and every seat carries <b>💤</b> to have its turns passed until whoever sits there comes back.</li>
         <li><b>Busy today?</b> Tick <b>💤 I'm busy — pass my turns</b> under <i>⚙ table rules</i> and your turns pass themselves until you come back; the banner has an <b>I'm back</b> button whenever you want them again. If everybody is busy the game simply waits.</li>
-        <li>When somebody joins a game already going, the table is offered a <b>fresh start</b> — and gets to choose who leads off.</li>
+        <li>When somebody joins a game already going, the table is offered a <b>fresh start</b> — and gets to name who leads off, or leave it to the hat. Starting again from <b>⚙</b> always draws the opener at random.</li>
         <li><b>Playing to a number of words?</b> Set one under <i>⚙ table rules</i> and the corner of the board counts down. The game ends on the last word, the top score wins, and the final table goes up under Actions — where the admin picks <b>★ new day</b>, which keeps the board, or <b>↺ new game</b>, which starts from nothing.</li>
         <li><b>🏳️ Forfeit</b> under Actions gives up: your letters go back in the bag and your seat closes. If you were the last opponent, the other player wins.</li>
       </ul>
@@ -213,7 +213,8 @@
       </ul>
       <h4>Scoring</h4>
       <ul>
-        <li><span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span> recur across the world but pay <b>once</b>, to the first letter to land there. Adding to a word pays face value.</li>
+        <li><span class="chip tw">3×W</span> <span class="chip dw">2×W</span> <span class="chip tl">3×L</span> <span class="chip dl">2×L</span> are scattered across the world but pay <b>once</b>, to the first letter to land there. Adding to a word pays face value.</li>
+        <li><b>Not every board is the classic one.</b> The world is tiled with 15×15 boards, all framed the same way and all centred on a <b>★</b>, but what is inside them changes as you travel: <b>classic</b> boards, <b>spirals</b> that pay better the further out you follow the arm, <b>waves</b> of letter bonuses, and <b>big bags</b> — a hoard of 3×L and 2×L round the star, worth crossing the map for. They come in regions, so it is worth knowing your way about.</li>
         <li>A word pays you once a day. Seven tiles at once is +50, and laying out a <b>full rack in one word doubles it</b>.</li>
         <li>Cover a fruit with a letter to eat it. Ten are laid out within reach each day, and more appear where you play — what each one gives is for you to find out.</li>
         <li>Scores reset daily — fresh bag, fresh racks, the ★ moves to clean ground and everyone's view goes with it. The day's winner keeps a ★, and the last five days are listed under <i>Last five days</i>. Hover a name for their record.</li>
@@ -222,7 +223,7 @@
       <ul>
         <li>A 448×448 loop. Drag to pan, pinch or <b>＋ －</b> to zoom, <b>⌖</b> for the last word — which always wears a halo. Arrow keys move a cursor.</li>
         <li><b>👤</b> sign in and your games follow you to any device; <b>🔔</b> tells you when it's your turn. <b>🎲</b> lists your games, ● for the ones waiting on you.</li>
-        <li>Whoever started the game is <b>admin 👑</b> and can remove players or hand the crown on. Setup folds away under <i>⚙ table rules</i> once play starts.</li>
+        <li>Whoever started the game is <b>admin 👑</b> and can remove players or hand the crown on. Seats fold away under <i>Players &amp; seats</i> once play starts.</li>
       </ul>
     </details>
 

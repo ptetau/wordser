@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GameError } from '../public/engine/game.js';
 import { makeGame, tilesFor } from './helpers.js';
 
 test('passing consumes the turn under the friend rule', () => {

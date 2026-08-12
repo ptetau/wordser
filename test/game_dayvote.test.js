@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GameError, DAY_END_VOTE_MS } from '../public/engine/game.js';
-import { Game } from '../public/engine/game.js';
+import { Game, DAY_END_VOTE_MS } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
 import { makeGame, tilesFor } from './helpers.js';
 

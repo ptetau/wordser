@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GameError, RACK_TARGET } from '../public/engine/game.js';
-import { Game } from '../public/engine/game.js';
+import { Game, GameError, RACK_TARGET } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
 import { mulberry32 } from '../public/engine/tiles.js';
 import { Board, WORLD } from '../public/engine/board.js';

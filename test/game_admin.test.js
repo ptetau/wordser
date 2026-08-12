@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, GameError } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
+import { mulberry32 } from '../public/engine/tiles.js';
 import { handleAction, memoryStore } from '../api/game.js';
 import { makeGame, tilesFor } from './helpers.js';
 
@@ -265,4 +266,32 @@ test('only the admin can call a new day', () => {
   const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
   assert.throws(() => g.newDay({ playerId: 1 }), /only the game admin/);
   assert.equal(g.apply({ type: 'newDay', playerId: 0 }).day, 2);
+});
+
+test('a restart draws the opener out of the hat unless one is named', () => {
+  // Ten fresh games from ten different bags: over that many draws the seat
+  // that leads off must not always be the one that pressed the button.
+  const seen = new Set();
+  for (let seed = 1; seed <= 10; seed++) {
+    const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(seed) });
+    ['Ana', 'Ben', 'Cleo'].forEach((n) => g.addPlayer(n));
+    seen.add(g.restart({ playerId: 0 }).first);
+  }
+  assert.ok(seen.size > 1, `the same seat led off every time (${[...seen]})`);
+
+  // Naming one still names one.
+  const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(4) });
+  ['Ana', 'Ben', 'Cleo'].forEach((n) => g.addPlayer(n));
+  assert.equal(g.restart({ playerId: 0, firstId: 2 }).first, 2);
+  assert.equal(g.turnId, 2);
+});
+
+test('the hat never draws a robot to open a game', () => {
+  const g = new Game({ dictionary: new Dictionary(['cat']), rng: mulberry32(7) });
+  g.addPlayer('Ana');
+  g.addCpu();
+  g.addCpu();
+  for (let i = 0; i < 12; i++) {
+    assert.equal(g.restart({ playerId: 0 }).first, 0, 'the human opens');
+  }
 });
