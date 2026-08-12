@@ -293,3 +293,100 @@ test('the admin can forfeit without handing the crown over first', () => {
   assert.equal(g.isAdmin(0), true);
   assert.match(g.log.join('\n'), /Ben runs the game now/);
 });
+
+// ------------------------------------------------------------ "don't wait for me"
+
+test('a busy player has their turns passed for them', () => {
+  const g = table(['Ana', 'Ben', 'Cleo']);
+  const { x, y } = g.startCell;
+  assert.equal(g.turnId, 0);
+
+  const r = g.setAway({ playerId: 1, away: true });
+  assert.equal(r.away, true);
+  assert.match(g.log.join('\n'), /Ben is busy/);
+  assert.equal(g.turnId, 0, 'it is still Ana\'s turn, so nothing moves yet');
+
+  // Ana plays: the turn would be Ben's, so it goes straight past him.
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', x, y) });
+  assert.equal(g.turnId, 2, 'Cleo, not Ben');
+  assert.match(g.log.join('\n'), /Ben is away — their turn passed/);
+  assert.equal(g.passed.has(1), true);
+});
+
+test('with one opponent away, the other simply plays on', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setAway({ playerId: 1, away: true });
+  const { x, y } = g.startCell;
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', x, y) });
+
+  // Ben's turn came and went, so it is Ana's again — and she may take it,
+  // because the skip counts as Ben having moved.
+  assert.equal(g.turnId, 0);
+  assert.equal(g.lastPlayerId, 1);
+  assert.equal(g.isTheirTurn(0), true, 'she is not blocked by her own last word');
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', x, y + 1) });
+  assert.equal(g.players[0].score > 0, true);
+});
+
+test('coming back is a switch you flick, and it says so', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setAway({ playerId: 1, away: true });
+  g.setAway({ playerId: 1, away: false });
+  assert.equal(g.players[1].away, false);
+  assert.match(g.log.join('\n'), /Ben is back at the table/);
+});
+
+test('a move of your own says you are back, even if the flag is still set', () => {
+  // Free-for-all: no turns to skip, so an away player can still act.
+  const g = table(['Ana', 'Ben']);
+  g.setMode({ playerId: 0, mode: 'free' });
+  g.setAway({ playerId: 1, away: true });
+  g.players[0].rack = ['a', 't'];
+  g.place({ playerId: 0, tiles: tilesFor('at', g.startCell.x, g.startCell.y) });
+  g.pass({ playerId: 1 });
+  assert.equal(g.players[1].away, false);
+  assert.match(g.log.join('\n'), /Ben is back at the table/);
+});
+
+test('turning it off by hand puts you back too, and only you can set it', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setAway({ playerId: 1, away: true });
+  assert.equal(g.players[1].away, true);
+  g.setAway({ playerId: 1, away: false });
+  assert.equal(g.players[1].away, false);
+  assert.equal(g.setAway({ playerId: 1, away: false }).away, false, 'a no-op is fine');
+  g.addCpu();
+  assert.throws(() => g.setAway({ playerId: 2, away: true }), /robot is never away/);
+});
+
+test('a table where everybody is away waits rather than spinning', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setAway({ playerId: 0, away: true });
+  g.setAway({ playerId: 1, away: true });
+  const turn = g.turnId;
+  const lines = g.log.length;
+  g.tickClock();
+  assert.equal(g.turnId, turn, 'the turn stayed put');
+  assert.equal(g.log.length, lines, 'and nothing was logged in a loop');
+  assert.equal(g.day, 1);
+});
+
+test('being away survives a round trip, and a restart clears it', () => {
+  const g = table(['Ana', 'Ben']);
+  g.setAway({ playerId: 1, away: true });
+  const back = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())), { dictionary: anything });
+  assert.equal(back.players[1].away, true);
+  back.restart({ playerId: 0 });
+  assert.equal(back.players[1].away, false);
+});
+
+test('an away seat can still be skipped by hand without breaking anything', () => {
+  const g = table(['Ana', 'Ben', 'Cleo']);
+  g.setAway({ playerId: 0, away: true });
+  // Ana holds the turn and is away: setting it resolved it straight away.
+  assert.equal(g.turnId, 1);
+  assert.equal(g.players[0].away, true);
+});

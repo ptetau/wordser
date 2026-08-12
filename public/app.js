@@ -4,7 +4,7 @@ import {
 // Moves that leave your turn where it is. Everything that puts letters on
 // the board — placing, swapping — is a play, and is not among them.
 const NON_TURN_MOVES = new Set([
-  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode', 'skip',
+  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode', 'skip', 'away',
 ]);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
@@ -524,14 +524,17 @@ function renderPlayers() {
     // Every seat says where it stands: one is up, the rest are waiting.
     const theirTurn = game.isTheirTurn(p.id);
     div.classList.add(theirTurn ? 'to-play' : 'waiting');
+    if (p.away) div.classList.add('is-away');
     const you = online() && p.id === session.playerId ? ' <small>(you)</small>' : '';
     const crown = game.isAdmin(p.id) ? ' <span title="game admin">👑</span>' : '';
     const idle = idleNote(p);
     // Where they stand goes on a second line under the name: a name, a tag,
     // a clock, stars, a score and two buttons will not fit across 330px.
-    const meta = theirTurn
-      ? idle ? `⏳ ${esc(idle.text)} on this turn` : 'to play'
-      : `waiting${idle ? ` · ${esc(idle.text)}` : ''}`;
+    const meta = p.away
+      ? '⏭ busy — turns pass themselves'
+      : theirTurn
+        ? idle ? `⏳ ${esc(idle.text)} on this turn` : 'to play'
+        : `waiting${idle ? ` · ${esc(idle.text)}` : ''}`;
     const avg = p.played ? Math.round(p.total / p.played) : null;
     const record = [
       `${p.stars} day${p.stars === 1 ? '' : 's'} won`,
@@ -1129,6 +1132,11 @@ function renderOnline() {
   const runsTable = !online() || game.isAdmin(me);
   $('mode-row').hidden = !(game.players.length > 1 && runsTable);
   $('goal-row').hidden = !runsTable;
+  // Being away is nobody's business but your own, so this row is not the
+  // admin's to gate — but it only means anything at a table with turns.
+  const meP = game.players[me];
+  $('away-row').hidden = !(meP && !meP.isCpu && game.players.length > 1 && game.mode === 'turns');
+  $('away-me').checked = Boolean(meP?.away);
   const goalBox = $('goal-words');
   if (document.activeElement !== goalBox) goalBox.value = game.goal ?? '';
   $('restart-game').hidden = !(runsTable && (!game.board.isEmpty() || game.over));
@@ -1168,6 +1176,22 @@ function renderTurn() {
     return;
   }
   el.hidden = false;
+  // Marked busy? Then the one thing the banner is for is getting back —
+  // the switch itself lives in the setup fold, which is closed mid-game.
+  if (game.players[me]?.away) {
+    el.className = 'waiting';
+    el.innerHTML = "You're marked busy — your turns are passing themselves. ";
+    const back = document.createElement('button');
+    back.className = 'mini';
+    back.id = 'banner-back';
+    back.textContent = "I'm back 👋";
+    back.onclick = () => {
+      $('away-me').checked = false;
+      $('away-me').dispatchEvent(new Event('change'));
+    };
+    el.appendChild(back);
+    return;
+  }
   const blocked = game.lastPlayerId === me;
   if (online()) {
     const waitingFor = game.players.find((p) => p.id !== game.lastPlayerId);
@@ -1523,6 +1547,9 @@ async function doMove(move, describe) {
       currentPlayer = game.turnId;
       setTimeout(runCpuTurns, 650);
     }
+    // Marking yourself busy also hands the turn on, but the device stays
+    // with you — you have just flicked a switch and may want it back.
+    if (move.type === 'away' && !online()) setTimeout(runCpuTurns, 650);
     showLastMove();
     refresh();
     return r;
@@ -2983,6 +3010,18 @@ $('fly-camera').addEventListener('change', (e) => {
       ? 'the view will glide to each new word'
       : 'the view will stay where you put it — ⌖ still jumps to the last word',
     '',
+  );
+});
+
+$('away-me').addEventListener('change', (e) => {
+  const away = e.target.checked;
+  const others = game.players.filter((p) => !p.away && !p.isCpu).length;
+  doMove({ type: 'away', away }, (r) =>
+    r.away
+      ? others > 2
+        ? "you're marked busy — your turns will pass themselves ⏭"
+        : "you're marked busy — with only one other player, they will simply carry on"
+      : 'welcome back — your turns are yours again 👋',
   );
 });
 

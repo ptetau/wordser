@@ -119,6 +119,10 @@
             <span>Play to a number of words</span>
             <input type="number" id="goal-words" min="0" max="999" placeholder="off" />
           </label>
+          <label id="away-row" hidden>
+            <span>⏭ I'm busy — pass my turns</span>
+            <input type="checkbox" id="away-me" />
+          </label>
           <label id="fly-row">
             <span>Glide the view to each new word</span>
             <input type="checkbox" id="fly-camera" />
@@ -166,6 +170,7 @@
         <li>The arrow is guessed from the letters nearby, or points at the nearest word.</li>
         <li>Nobody plays twice in a row. Games take turns by default; the admin can switch to free-for-all, and eight hours on your turn is skipped for you. A seat with no letters left passes itself.</li>
         <li><b>Holding things up?</b> Each seat says how long it has been quiet, and the one with the turn carries <b>⏭</b> for the admin to move play on.</li>
+        <li><b>Busy today?</b> Tick <b>⏭ I'm busy — pass my turns</b> under <i>Players &amp; setup</i> and your turns pass themselves until you come back; the banner has an <b>I'm back</b> button whenever you want them again. If everybody is busy the game simply waits.</li>
         <li>When somebody joins a game already going, the table is offered a <b>fresh start</b> — and gets to choose who leads off.</li>
         <li><b>Playing to a number of words?</b> Set one under <i>Players &amp; setup</i> and the corner of the board counts down. The game ends on the last word and the top score wins.</li>
         <li><b>🏳️ Forfeit</b> under Actions gives up: your letters go back in the bag and your seat closes. If you were the last opponent, the other player wins.</li>

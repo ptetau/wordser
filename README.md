@@ -117,6 +117,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
   twice running. Either way nobody takes two turns in a row — not across a
   day boundary, and not when you're the only player, where the way on is to
   invite a friend or add a CPU.
+- **"Don't wait for me."** A player who knows they are busy can say so, and
+  their turns pass themselves the moment they arrive — a game of four
+  doesn't stall all afternoon on one of them. It is theirs to set and theirs
+  to clear (the turn banner carries an *I'm back* button), and playing
+  anything at all clears it. Robots are never busy, and a table where
+  everybody is waits rather than spinning: somebody has to be able to move.
+  With one opponent away the other simply plays on, since the passed turn
+  counts as their move.
 - **Skipping idlers.** Every seat in the players list says how long it has
   been quiet — the one holding the turn measured from when the turn
   arrived, everybody else from their last move — so whoever runs the table

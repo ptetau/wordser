@@ -224,6 +224,8 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .player .meta.now { color: var(--accent); font-weight: 600; }
+.player.is-away .name { opacity: 0.6; }
+.player.is-away .meta { color: color-mix(in srgb, var(--accent) 55%, var(--muted)); }
 .player .stars {
   color: var(--accent); letter-spacing: 1px; flex-shrink: 0;
   font-variant-numeric: tabular-nums;

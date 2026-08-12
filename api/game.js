@@ -25,6 +25,8 @@ const MAX_PLAYERS = 16;
 // lands on a robot the robot should answer it.
 const NON_TURN_MOVES = [
   'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode',
+  // 'away' is missing on purpose, like 'skip': marking yourself busy hands
+  // the turn on, and a robot it lands on should answer it.
 ];
 
 let dictionaryPromise;

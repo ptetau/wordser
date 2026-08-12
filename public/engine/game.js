@@ -179,6 +179,7 @@ export class Game {
       scored: [], // words this player has already been paid for today
       played: 0, // days finished, for the average
       total: 0, // points across all of them
+      away: false, // "don't wait for me": their turns pass themselves
     };
     this.players.push(player);
     this.#refill(player);
@@ -233,6 +234,7 @@ export class Game {
       p.total = 0;
       p.scored = [];
       p.rack = [];
+      p.away = false; // a fresh game starts with everyone at the table
       delete p.pendingChoice;
       this.#refill(p);
       this.#noteActed(p);
@@ -457,6 +459,42 @@ export class Game {
    * them, it does; if it can't, they pass and the turn carries on round
    * rather than everyone waiting for a move that cannot come.
    */
+  /**
+   * Settle the turn after something has changed it: hand it past anybody
+   * who has nothing to play, then past anybody who has said not to wait for
+   * them. Both loops are bounded by the size of the table — if everyone is
+   * out, the turn stays where it is rather than spinning.
+   */
+  #resolveTurn() {
+    this.#passTheTileless();
+    this.#skipTheAway();
+  }
+
+  /**
+   * Pass the turn along past players who have said they are busy. Somebody
+   * has to be able to move: if every remaining seat is away, the turn is
+   * left where it stopped and the game simply waits.
+   */
+  #skipTheAway() {
+    if (this.mode !== 'turns' || this.players.length < 2 || this.over) return;
+    if (this.players.every((p) => p.away || p.isCpu) && this.players.some((p) => p.away)) return;
+    for (let guard = 0; guard < this.players.length; guard++) {
+      const p = this.player(this.turnId);
+      if (!p?.away) return;
+      this.log.push(`${p.name} is away — their turn passed ⏭`);
+      this.passed.add(p.id);
+      this.lastPlayerId = p.id;
+      this.#noteActed(p, { voluntary: false });
+      this.turnId = (this.turnId + 1) % this.players.length;
+      this.turnStartedAt = this.now();
+      if (this.bag.pool.length === 0 && this.passed.size >= this.players.length) {
+        this.log.push('everyone passed on an empty bag — the day ends early');
+        this.startNewDay();
+        return;
+      }
+    }
+  }
+
   #passTheTileless() {
     if (this.mode !== 'turns' || this.players.length < 2) return;
     for (let guard = 0; guard < this.players.length; guard++) {
@@ -466,7 +504,7 @@ export class Game {
       if (p.rack.length) return;
       this.passed.add(p.id);
       this.lastPlayerId = p.id;
-      this.#noteActed(p);
+      this.#noteActed(p, { voluntary: false });
       this.log.push(`${p.name} has no letters left — passed`);
       this.turnId = (this.turnId + 1) % this.players.length;
       this.turnStartedAt = this.now();
@@ -491,8 +529,39 @@ export class Game {
   }
 
   /** Note that a seat has just acted, for the idle clock. */
-  #noteActed(player) {
+  /**
+   * Mark a seat as having done something. A move of your own also says you
+   * are back — nobody who just played a word needs to be skipped — while a
+   * skip or an automatic pass says nothing about where you are.
+   */
+  #noteActed(player, { voluntary = true } = {}) {
     player.lastActedAt = this.now();
+    if (voluntary && player.away) {
+      player.away = false;
+      this.log.push(`${player.name} is back at the table 👋`);
+    }
+  }
+
+  /**
+   * "Don't wait for me." A player who knows they are busy can have their
+   * turns passed the moment they arrive, so a game of four doesn't stall on
+   * one of them all afternoon. It is theirs to set and theirs to clear, and
+   * playing anything at all clears it.
+   */
+  setAway({ playerId, away }) {
+    this.#maybeRollover();
+    const player = this.player(playerId);
+    if (player.isCpu) fail('a robot is never away');
+    const next = Boolean(away);
+    if (player.away === next) return { away: next };
+    player.away = next;
+    this.log.push(
+      next
+        ? `${player.name} is busy — their turns will pass themselves ⏭`
+        : `${player.name} is back at the table 👋`,
+    );
+    if (next) this.#resolveTurn();
+    return { away: next };
   }
 
   /**
@@ -540,7 +609,7 @@ export class Game {
     );
     this.passed.add(target.id);
     this.lastPlayerId = target.id;
-    this.#noteActed(target); // a skip restarts their idle clock
+    this.#noteActed(target, { voluntary: false }); // a skip restarts the clock
     this.#advanceTurn(target.id);
     if (this.bag.pool.length === 0 && this.passed.size >= this.players.length) {
       this.log.push('everyone passed on an empty bag — the day ends early');
@@ -688,7 +757,7 @@ export class Game {
     let changed = this.rolloverIfNeeded();
     if (this.#unstickTurn()) changed = true;
     const before = this.turnId;
-    this.#passTheTileless();
+    this.#resolveTurn();
     if (this.turnId !== before) changed = true;
     if (this.skipIfIdle()) changed = true;
     if (this.dayEndVote && this.now() >= this.dayEndVote.expiresAt) {
@@ -785,7 +854,7 @@ export class Game {
     const fruits = this.#collectFruits(player, coveredKeys);
     this.spawnFruit(FRUIT_CHANCE, coveredKeys);
     this.#maybeJumpStar();
-    this.#passTheTileless(); // don't hand the turn to someone with nothing
+    this.#resolveTurn(); // don't hand it to someone with nothing, or nobody
     return fruits;
   }
 
@@ -1182,7 +1251,7 @@ export class Game {
       return { passed: true, dayEnded: true, points: 0 };
     }
     const day = this.day;
-    this.#passTheTileless();
+    this.#resolveTurn();
     return { passed: true, dayEnded: this.day !== day, points: 0 };
   }
 
@@ -1503,6 +1572,8 @@ export class Game {
         return this.setGoal(move);
       case 'forfeit':
         return this.forfeit(move);
+      case 'away':
+        return this.setAway(move);
       default:
         fail(`unknown move type: ${move?.type}`);
     }
@@ -1574,6 +1645,7 @@ export class Game {
       p.scored ??= [];
       p.played ??= 0;
       p.total ??= 0;
+      p.away ??= false;
     }
     for (const { x, y, ...tile } of data.cells) game.board.set(x, y, tile);
     game.fruits.clear(); // replace the constructor's fresh scatter with the snapshot's
