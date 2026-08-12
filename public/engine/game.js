@@ -132,7 +132,12 @@ export class Game {
     this.dictionary = dictionary;
     this.board = new Board();
     this.fruits = new Map(); // "x,y" -> fruit type, always on empty cells
-    this.bag = new Bag(rng);
+    this.bag = new Bag(rng); // the day's hundred, played from
+    // The fruit have a hundred of their own. What a lemon hands you was
+    // never going to be drawn by anybody, so a generous run of fruit can't
+    // drain the letters the table is playing with — and the day's bag runs
+    // dry through play, which is what the day-end rules are about.
+    this.fruitBag = new Bag(rng);
     this.lastMove = null; // { playerId, keys } of the most recent board change
     this.startCell = { ...START_CELL };
     this.#seedFruits();
@@ -215,6 +220,7 @@ export class Game {
     this.board = new Board();
     this.fruits.clear();
     this.bag.refill();
+    this.fruitBag.refill();
     this.spent = new Set();
     this.days = [];
     this.lastMove = null;
@@ -665,6 +671,7 @@ export class Game {
     // racks. Yesterday's unplayed letters go with yesterday's bag — only
     // what reached the board outlives the day.
     this.bag.refill();
+    this.fruitBag.refill();
     this.starJumped = false;
     for (const p of this.players) {
       p.score = 0;
@@ -984,7 +991,7 @@ export class Game {
       if (type === 'lemon') {
         let n = 0;
         while (n < 2 && player.rack.length < RACK_MAX) {
-          const l = this.bag.draw();
+          const l = this.fruitBag.draw();
           if (!l) break;
           player.rack.push(l);
           n++;
@@ -998,7 +1005,10 @@ export class Game {
             : `${player.name} ate a chilli ${FRUIT_EMOJI.chilli}, but there was nothing hot left to draw`,
         );
       } else if (type === 'cherry') {
-        const offered = Array.from({ length: CHERRY_CHOICES }, () => this.bag.draw()).filter(Boolean);
+        const offered = Array.from(
+          { length: CHERRY_CHOICES },
+          () => this.fruitBag.draw(),
+        ).filter(Boolean);
         if (offered.length) {
           player.pendingChoice = offered;
           this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}: choose one of ${offered.length} letters`);
@@ -1009,9 +1019,11 @@ export class Game {
         player.score += GRAPE_POINTS;
         this.log.push(`${player.name} ate a grape ${FRUIT_EMOJI.grape}: +${GRAPE_POINTS} points`);
       } else if (type === 'banana') {
+        // The old rack came out of the day's bag, so that is where it goes
+        // back; the fresh one is the fruit's to give.
         const n = player.rack.length;
         this.bag.put(...player.rack);
-        player.rack = Array.from({ length: n }, () => this.bag.draw()).filter(Boolean);
+        player.rack = Array.from({ length: n }, () => this.fruitBag.draw()).filter(Boolean);
         this.log.push(`${player.name} ate a banana ${FRUIT_EMOJI.banana}: a fresh rack of ${player.rack.length}`);
       } else if (type === 'mushroom') {
         const [x, y] = k.split(',').map(Number);
@@ -1025,7 +1037,7 @@ export class Game {
         );
       } else if (type === 'kiwi') {
         // Both wildcards live in the bag like any other tile.
-        const blank = player.rack.length < RACK_MAX ? this.bag.take(BLANK) : null;
+        const blank = player.rack.length < RACK_MAX ? this.fruitBag.take(BLANK) : null;
         if (blank) player.rack.push(blank);
         this.log.push(
           blank
@@ -1045,16 +1057,16 @@ export class Game {
    * drops into the day's bag, where it belongs to everybody. Eating one is
    * not a private windfall: it churns the board and restocks the table.
    *
-   * This is the one thing in the game that adds letters to a day (see the
-   * conservation note in the README): a mushroom brings its own bagful and
-   * hands the displaced letters to the common pool.
+   * It spends the fruit bag, like every other fruit, and hands what it
+   * displaces to the players' bag — so a mushroom moves letters from the
+   * fruit's hundred into the table's, which is as generous as it sounds.
    *
    * Bounded on purpose: the words within SHROOM_RADIUS, at most
    * SHROOM_WORDS of them, one substitution attempted per word. A mushroom
    * is a surprise, not a solver competition.
    */
   #mushroom(player, ox, oy) {
-    const shroomBag = new Bag(this.bag.rng);
+    const shroomBag = this.fruitBag;
     let rewritten = 0;
     let returned = 0;
 
@@ -1129,10 +1141,10 @@ export class Game {
    */
   #drawFiery(player) {
     if (player.rack.length >= RACK_MAX) return null;
-    const hot = FIERY_LETTERS.filter((l) => this.bag.has(l));
+    const hot = FIERY_LETTERS.filter((l) => this.fruitBag.has(l));
     const letter = hot.length
-      ? this.bag.take(hot[Math.floor(this.bag.rng() * hot.length)])
-      : this.bag.takeBest();
+      ? this.fruitBag.take(hot[Math.floor(this.bag.rng() * hot.length)])
+      : this.fruitBag.takeBest();
     if (letter) player.rack.push(letter);
     return letter;
   }
@@ -1140,7 +1152,7 @@ export class Game {
   /** Hand back the cherry letters a player was offered but never kept. */
   #returnPendingChoice(player) {
     if (!player.pendingChoice) return;
-    this.bag.put(...player.pendingChoice);
+    this.fruitBag.put(...player.pendingChoice);
     delete player.pendingChoice;
   }
 
@@ -1268,7 +1280,7 @@ export class Game {
     delete player.pendingChoice;
     // Everything the player doesn't keep goes straight back into the bag.
     const keeping = player.rack.length < RACK_MAX;
-    this.bag.put(...choice.filter((_, n) => !keeping || n !== i));
+    this.fruitBag.put(...choice.filter((_, n) => !keeping || n !== i));
     if (!keeping) {
       this.log.push(
         `${player.name}'s rack was full — the cherry's letters went back in the bag ${FRUIT_EMOJI.cherry}`,
@@ -1622,6 +1634,7 @@ export class Game {
       dayOpenedAt: this.dayOpenedAt ?? null,
       dayEndVote: this.dayEndVote ? { ...this.dayEndVote, agreed: [...this.dayEndVote.agreed] } : null,
       bag: [...this.bag.pool].sort().join(''),
+      fruitBag: [...this.fruitBag.pool].sort().join(''),
       log: [...this.log],
     };
   }
@@ -1653,6 +1666,10 @@ export class Game {
     game.lastMove = data.lastMove ?? null;
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
     if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
+    // Games saved before the fruit had a bag of their own start with a full
+    // one: the letters they had already handed out came from the day's bag,
+    // which is where the snapshot still has them.
+    if (typeof data.fruitBag === 'string') game.fruitBag.pool = [...data.fruitBag];
     game.passed = new Set(data.passed ?? []);
     game.spent = new Set(data.spent ?? []);
     game.goal = data.goal ?? null;

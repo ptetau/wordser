@@ -7,12 +7,16 @@ import { BLANK, DISTRIBUTION, mulberry32 } from '../public/engine/tiles.js';
 import { makeGame, tilesFor } from './helpers.js';
 
 const SET_SIZE = Object.values(DISTRIBUTION).reduce((a, b) => a + b, 0); // 100
+// A day holds two sets: the hundred the table plays with, and the hundred
+// the fruit hand out from.
+const DAY_SIZE = SET_SIZE * 2;
 
 /** Every letter the game is holding, wherever it currently sits. */
 function census(game) {
   const counts = new Map();
   const add = (l) => counts.set(l, (counts.get(l) ?? 0) + 1);
   for (const l of game.bag.pool) add(l);
+  for (const l of game.fruitBag.pool) add(l);
   for (const p of game.players) {
     for (const l of p.rack) add(l);
     for (const l of p.pendingChoice ?? []) add(l);
@@ -57,13 +61,15 @@ function assertConserved(game, before, what) {
   }
 }
 
-test('a fresh day holds exactly one standard set, and never more than one of each letter', () => {
+test('a fresh day holds two standard sets: one to play with, one for the fruit', () => {
   const g = makeGame(['cat']);
-  assert.equal(total(g), SET_SIZE);
+  assert.equal(total(g), DAY_SIZE);
   const c = census(g);
   for (const [letter, count] of Object.entries(DISTRIBUTION)) {
-    assert.equal(c.get(letter) ?? 0, count, `wrong number of "${letter}"`);
+    assert.equal(c.get(letter) ?? 0, count * 2, `wrong number of "${letter}"`);
   }
+  // And the two are separate: the fruit's hundred is untouched at dawn.
+  assert.equal(g.fruitBag.pool.length, SET_SIZE);
 });
 
 test('placing moves letters from rack to board without creating any', () => {
@@ -72,7 +78,7 @@ test('placing moves letters from rack to board without creating any', () => {
   const before = census(g);
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assertConserved(g, before, 'place');
-  assert.equal(total(g), SET_SIZE);
+  assert.equal(total(g), DAY_SIZE);
 });
 
 test('a chilli draws its hot letter out of the bag', () => {
@@ -100,10 +106,11 @@ test('a chilli with no hot letters left takes the best the bag has', () => {
   assert.equal(g.bag.pool.includes('k'), false);
 });
 
-test('a chilli on an empty bag fizzles instead of minting a letter', () => {
+test('a chilli on an empty fruit bag fizzles instead of minting a letter', () => {
   const g = makeGame(['cat']);
   rig(g, 0, ['c', 'a', 't']);
   g.bag.pool = [];
+  g.fruitBag.pool = []; // the fruit have nothing left to give either
   g.fruits.set(Board.key(2, 0), 'chilli');
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assert.deepEqual(g.players[0].rack, []);
@@ -114,20 +121,19 @@ test('a kiwi takes a real wildcard from the bag, and fizzles once both are out',
   const g = makeGame(['cat']);
   rig(g, 0, ['c', 'a', 't']);
   g.fruits.set(Board.key(2, 0), 'kiwi');
-  const blanks = g.bag.pool.filter((l) => l === BLANK).length;
-  assert.equal(blanks, 2);
+  assert.equal(g.fruitBag.pool.filter((l) => l === BLANK).length, 2);
   const before = census(g);
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assertConserved(g, before, 'kiwi');
   // Conservation above already proves it wasn't conjured; the rack refill
   // may well have drawn the other one, so only count the pair as a whole.
   assert.equal(g.players[0].rack.includes(BLANK), true);
-  assert.equal(census(g).get(BLANK), 2);
+  assert.equal(census(g).get(BLANK), 4, 'two per set, two sets');
 
   // With no wildcards left in the bag, the kiwi has nothing to give.
   const g2 = makeGame(['cat']);
   rig(g2, 0, ['c', 'a', 't']);
-  g2.bag.pool = g2.bag.pool.filter((l) => l !== BLANK);
+  g2.fruitBag.pool = g2.fruitBag.pool.filter((l) => l !== BLANK);
   g2.fruits.set(Board.key(2, 0), 'kiwi');
   const before2 = census(g2);
   g2.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
@@ -136,7 +142,7 @@ test('a kiwi takes a real wildcard from the bag, and fizzles once both are out',
   assert.match(g2.log.join('\n'), /both wildcards are already in play/);
 });
 
-test("a cherry's unkept letters go straight back into the bag", () => {
+test("a cherry's unkept letters go straight back into the fruit bag", () => {
   const g = makeGame(['cat']);
   rig(g, 0, ['c', 'a', 't']);
   g.fruits.set(Board.key(2, 0), 'cherry');
@@ -145,11 +151,11 @@ test("a cherry's unkept letters go straight back into the bag", () => {
   assert.equal(g.players[0].pendingChoice.length, 7);
   assertConserved(g, before, 'cherry offered'); // reserved, not conjured
 
-  const bagBefore = g.bag.pool.length;
+  const spareBefore = g.fruitBag.pool.length;
   g.choosePendingLetter({ playerId: 0, index: 3 });
-  assert.equal(g.bag.pool.length, bagBefore + 6);
+  assert.equal(g.fruitBag.pool.length, spareBefore + 6, 'six offers went home');
   assertConserved(g, before, 'cherry resolved');
-  assert.equal(total(g), SET_SIZE);
+  assert.equal(total(g), DAY_SIZE);
 });
 
 test('a cherry offered to a full rack returns every letter', () => {
@@ -162,17 +168,17 @@ test('a cherry offered to a full rack returns every letter', () => {
   g.players[0].rack = [];
   fill(g, 0, 12); // rack at the 12-tile cap
   const midway = census(g);
-  const bagBefore = g.bag.pool.length;
+  const spareBefore = g.fruitBag.pool.length;
   const r = g.choosePendingLetter({ playerId: 0, index: 0 });
   assert.equal(r.letter, null);
   assert.equal(g.players[0].pendingChoice, undefined);
   assert.match(g.log.join('\n'), /went back in the bag/);
-  assert.equal(g.bag.pool.length, bagBefore + 7); // all seven offers returned
+  assert.equal(g.fruitBag.pool.length, spareBefore + 7); // all seven returned
   assertConserved(g, midway, 'cherry declined');
-  assert.equal(total(g), SET_SIZE);
+  assert.equal(total(g), DAY_SIZE);
 });
 
-test('an unresolved cherry returns to the bag when its player is removed', () => {
+test('an unresolved cherry returns to the fruit bag when its player is removed', () => {
   const g = makeGame(['cat']);
   rig(g, 0, ['c', 'a', 't']);
   g.fruits.set(Board.key(2, 0), 'cherry');
@@ -181,7 +187,7 @@ test('an unresolved cherry returns to the bag when its player is removed', () =>
   const before = census(g);
   g.removePlayer({ playerId: 1, targetId: 0 });
   assertConserved(g, before, 'removal with a pending cherry');
-  assert.equal(total(g), SET_SIZE);
+  assert.equal(total(g), DAY_SIZE);
 });
 
 test('a banana swaps the whole rack through the bag', () => {
@@ -193,17 +199,19 @@ test('a banana swaps the whole rack through the bag', () => {
   assertConserved(g, before, 'banana');
 });
 
-test('a lemon draws its two letters from the bag', () => {
+test("a lemon draws its two letters from the fruit's bag, not the table's", () => {
   const g = makeGame(['cat']);
   rig(g, 0, ['c', 'a', 't']);
   g.fruits.set(Board.key(2, 0), 'lemon');
   const before = census(g);
   const bagBefore = g.bag.pool.length;
+  const spareBefore = g.fruitBag.pool.length;
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assertConserved(g, before, 'lemon');
   // Seven to refill the rack, then the lemon's two on top of that.
   assert.equal(g.players[0].rack.length, 9);
-  assert.equal(g.bag.pool.length, bagBefore - 9);
+  assert.equal(g.bag.pool.length, bagBefore - 7, 'the refill, and only the refill');
+  assert.equal(g.fruitBag.pool.length, spareBefore - 2, 'the lemon paid for itself');
 });
 
 test('a swap trades tile for tile, even with a full rack', () => {
@@ -248,8 +256,9 @@ test('a new day starts a brand-new set; only board letters carry over', () => {
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   const onBoard = g.board.cells.size;
   g.startNewDay();
-  assert.equal(total(g), SET_SIZE + onBoard);
+  assert.equal(total(g), DAY_SIZE + onBoard);
   assert.equal(g.bag.pool.length + g.players.reduce((n, p) => n + p.rack.length, 0), SET_SIZE);
+  assert.equal(g.fruitBag.pool.length, SET_SIZE, 'the fruit get a fresh hundred too');
 });
 
 // --------------------------------------------------------------- fuzzing
@@ -352,7 +361,9 @@ function fuzz(seed, turns) {
     if (g.day !== dayBefore) {
       // A day ended: brand-new set, so re-baseline instead of comparing.
       const loose = g.bag.pool.length + g.players.reduce((n, q) => n + q.rack.length, 0);
+      const spare = g.fruitBag.pool.length;
       assert.equal(loose, SET_SIZE, `seed ${seed} turn ${turn}: new day is not a full set`);
+      assert.equal(spare, SET_SIZE, `seed ${seed} turn ${turn}: the fruit bag is not fresh`);
       tally.newDay++;
       continue;
     }
@@ -365,7 +376,7 @@ test('thousands of random moves never mint or destroy a letter', () => {
   let seen = { place: 0, swap: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
   for (let seed = 1; seed <= 8; seed++) {
     const { game, tally } = fuzz(seed, 600);
-    if (!tally.newDay) assert.equal(total(game), SET_SIZE, `seed ${seed} ended off a full set`);
+    if (!tally.newDay) assert.equal(total(game), DAY_SIZE, `seed ${seed} ended off two full sets`);
     seen = Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v + tally[k]]));
   }
   // The run is only meaningful if it actually exercised every path that
@@ -377,13 +388,15 @@ test('thousands of random moves never mint or destroy a letter', () => {
   assert.ok(seen.fruit > 100, `too few fruits eaten: ${seen.fruit}`);
 });
 
-test('a mushroom is the one thing that adds letters, and it adds them to the bag', () => {
+test('a mushroom moves letters from the fruit bag into the table\'s', () => {
   const g = makeGame(['cat', 'cot', 'cut', 'bat', 'bot', 'oat', 'at', 'ae', 'oe']);
   rig(g, 0, ['c', 'a', 't', 'e', 'e', 'e', 'e']);
   rig(g, 1, ['e']);
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   const boardBefore = g.board.cells.size;
-  const totalBefore = total(g);
+  const before = census(g);
+  const spareBefore = g.fruitBag.pool.length;
+  const bagBefore = g.bag.pool.length;
 
   g.fruits.set('1,1', 'mushroom');
   g.place({ playerId: 1, tiles: [{ x: 1, y: 1, letter: 'e' }] });
@@ -393,8 +406,11 @@ test('a mushroom is the one thing that adds letters, and it adds them to the bag
   const returned = Number(/and (\d+) letter/.exec(line)[1]);
   assert.ok(returned > 0);
 
-  // A rewrite swaps letters in place, so the board keeps its size — and the
-  // day's hundred has grown by exactly what the mushroom brought with it.
+  // A rewrite swaps letters in place, so the board keeps its size; the
+  // letters it puts down come out of the fruit's hundred and the ones it
+  // prises off land in the table's. Nothing is minted either way.
   assert.equal(g.board.cells.size, boardBefore + 1, 'one cell for the tile just played');
-  assert.equal(total(g), totalBefore + returned, 'the mushroom minted exactly what it displaced');
+  assert.equal(g.fruitBag.pool.length, spareBefore - returned, 'the fruit bag paid');
+  assert.ok(g.bag.pool.length >= bagBefore + returned - 7, 'the table was paid');
+  assertConserved(g, before, 'mushroom');
 });

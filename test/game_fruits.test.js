@@ -4,7 +4,7 @@ import { GameError, RACK_TARGET } from '../public/engine/game.js';
 import { Game } from '../public/engine/game.js';
 import { Dictionary } from '../public/engine/dictionary.js';
 import { mulberry32 } from '../public/engine/tiles.js';
-import { WORLD } from '../public/engine/board.js';
+import { Board, WORLD } from '../public/engine/board.js';
 import { makeGame, tilesFor } from './helpers.js';
 
 test('a lemon feeds you two extra letters', () => {
@@ -173,4 +173,52 @@ test('each new day lays out a fresh crop around the day\'s action', () => {
     assert.ok(nearest >= 3 && nearest <= 9, `fruit at ${s} sits ${nearest} from anything worth playing`);
   }
   assert.match(g.log.join('\n'), /fresh fruits are within reach/);
+});
+
+test('the fruit bag is its own hundred, and the table never pays for a fruit', () => {
+  const g = makeGame(['cat', 'cats'], { racks: [['c', 'a', 't', 's', 'e', 'e', 'e'], []] });
+  assert.equal(g.fruitBag.pool.length, 100, 'the fruit start with a full set');
+
+  // A run of generous fruit, eaten one after another.
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  let handedOut = 0;
+  for (const type of ['lemon', 'chilli', 'kiwi', 'lemon', 'chilli']) {
+    const before = g.bag.pool.length;
+    const spare = g.fruitBag.pool.length;
+    g.players[0].rack = ['s'];
+    g.fruits.set(Board.key(3, 0), type);
+    g.lastPlayerId = null; // a one-player fixture: let her go again
+    g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
+    // The table's bag only ever paid for the rack refill.
+    const drawn = before - g.bag.pool.length;
+    assert.ok(drawn <= 7, `${type} took ${drawn} from the table's bag`);
+    handedOut += spare - g.fruitBag.pool.length;
+    g.board.remove(3, 0); // put the board back for the next go
+  }
+  assert.ok(handedOut > 0, 'the fruit bag did the giving');
+  assert.equal(g.fruitBag.pool.length, 100 - handedOut);
+});
+
+test('an empty fruit bag fizzles without touching the day', () => {
+  const g = makeGame(['cat', 'cats'], { racks: [['c', 'a', 't', 's', 'e', 'e', 'e'], []] });
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  g.fruitBag.pool = [];
+  g.players[0].rack = ['s'];
+  g.fruits.set(Board.key(3, 0), 'lemon');
+  const before = g.bag.pool.length;
+  g.lastPlayerId = null;
+  const r = g.place({ playerId: 0, tiles: [{ x: 3, y: 0, letter: 's' }] });
+  assert.deepEqual(r.fruits, ['lemon']);
+  assert.match(g.log.join('\n'), /0 extra letters/);
+  assert.ok(before - g.bag.pool.length <= 7, 'only the refill came out of the day');
+});
+
+test('a new day refills both bags', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  g.fruitBag.pool = ['a', 'b'];
+  g.bag.pool = ['c'];
+  g.startNewDay();
+  assert.equal(g.fruitBag.pool.length, 100);
+  const dealt = g.players.reduce((n, p) => n + p.rack.length, 0);
+  assert.equal(g.bag.pool.length + dealt, 100);
 });
