@@ -7,11 +7,13 @@
 //     word therefore pays face value for the letters already down.
 //   - You can only play after a friend has played: nobody makes two moves in
 //     a row, not even the only player at the table.
-//   - Two moves make words: place a word on empty cells, or swap letters of
-//     your own for letters already down — any number of them, across any
-//     number of words, so long as every word they touch stays real. Each
-//     letter you prise off replaces the tile you spent, so the rack keeps
-//     its size, and n swapped letters pay n each on top of their face value.
+//   - Three moves put letters on the board: place a word on empty cells,
+//     or write over letters already down — swapping or stacking. Both reach
+//     as far as you like in one turn, so long as every word they touch stays
+//     real and each letter after the first lands in a word the reach already
+//     holds. A swap pays nothing and hands you every letter you prised off;
+//     a stack scores the words it rewrites and posts those letters back into
+//     the bag. Letters for points, or points for letters: never both.
 //   - Laying out a full rack in one turn doubles the word.
 //   - Every letter in play comes out of the day's 100-tile bag, and anything
 //     that leaves a rack without reaching the board goes back into it.
@@ -70,6 +72,9 @@ const QUIET_ENOUGH = 0.99; // ...and how empty it has to be
 const STAR_SEARCH = 6; // rings of the premium lattice to look through
 const FIERY_LETTERS = ['j', 'q', 'x', 'z'];
 const GRAPE_POINTS = 10;
+// Scoring a word with nothing "changed": no cell of it is fresh, so no
+// premium can pay. A stack writes over squares that were mined long ago.
+const EMPTY_KEYS = new Set();
 
 /**
  * Whose move is it? Deliberately written against the plain fields rather
@@ -472,6 +477,8 @@ export class Game {
    * out, the turn stays where it is rather than spinning.
    */
   #resolveTurn() {
+    // A finished game has no turn to settle, and free-for-all never had one.
+    if (this.over || this.turnId === null) return;
     this.#passTheTileless();
     this.#skipTheAway();
   }
@@ -1464,37 +1471,62 @@ export class Game {
 
   /**
    * Swap move: trade letters of your own for letters already on the board —
-   * as many as you like, from as many different words as you like, in one
-   * go. Every word through every cell you touch must still be real
-   * afterwards.
+   * as many as you like, in one reach. Every word through every cell you
+   * touch must still be real afterwards, and after the first letter each
+   * one has to land in a word the reach already holds.
    *
-   * A swap takes your turn. It pays the face value of the tiles you lay
-   * down (a premium square has long since been spent by whoever first
-   * landed on it) plus n points for each of the n letters swapped, so
-   * reaching across three words at once is worth far more than three
-   * separate pokes. Each letter you prise off takes the place of the one you
-   * spent, so your rack keeps its size.
+   * A swap is a raid on the board, not a play: it scores nothing at all.
+   * What it gets you is letters — every tile you prise off goes into your
+   * rack in place of the one you spent — and it costs you your turn.
    *
    * @param {object} m
    * @param {number} m.playerId
    * @param {{x:number, y:number, letter:string, fromBlank?:boolean}[]} m.swaps
    */
   swap({ playerId, swaps }) {
+    return this.#overwrite({ playerId, plays: swaps, keep: true });
+  }
+
+  /**
+   * Stack move: the same reach across the board as a swap, and the same
+   * rule that every word it touches must stay real — but the other way
+   * round on both counts. The words you have rewritten pay you (once a day
+   * each, as ever, and never a premium: those squares were spent by the
+   * letters that first landed on them), and the letters you wrote over are
+   * gone, back into the table's bag for somebody to draw.
+   *
+   * @param {object} m
+   * @param {number} m.playerId
+   * @param {{x:number, y:number, letter:string, fromBlank?:boolean}[]} m.stacks
+   */
+  stack({ playerId, stacks }) {
+    return this.#overwrite({ playerId, plays: stacks, keep: false });
+  }
+
+  /**
+   * Writing over letters already down, which the two moves above differ
+   * only in the settling of: a swap keeps the letters and scores nothing, a
+   * stack scores the words and loses the letters.
+   */
+  #overwrite({ playerId, plays, keep }) {
+    const verb = keep ? 'swap' : 'stack';
+    const past = keep ? 'swapped' : 'stacked';
+    const doing = keep ? 'swapping' : 'stacking';
     this.#maybeRollover();
     const player = this.player(playerId);
     this.#assertCanPlay(player);
-    if (!Array.isArray(swaps) || swaps.length === 0) fail('pick at least one letter to swap');
+    if (!Array.isArray(plays) || plays.length === 0) fail(`pick at least one letter to ${verb}`);
 
-    const keys = new Set(swaps.map((sw) => Board.key(sw.x, sw.y)));
-    if (keys.size !== swaps.length) fail('you can only swap a cell once');
+    const keys = new Set(plays.map((sw) => Board.key(sw.x, sw.y)));
+    if (keys.size !== plays.length) fail(`you can only ${verb} a cell once`);
 
     const rackCopy = [...player.rack];
     const olds = [];
-    for (const sw of swaps) {
-      const old = this.board.get(sw.x, sw.y) ?? fail(`no tile at (${sw.x},${sw.y}) to swap`);
+    for (const sw of plays) {
+      const old = this.board.get(sw.x, sw.y) ?? fail(`no tile at (${sw.x},${sw.y}) to ${verb}`);
       if (!isLetter(sw.letter)) fail(`invalid letter: ${sw.letter}`);
       if (Board.effective(old) === sw.letter && !sw.fromBlank) {
-        fail(`swapping "${sw.letter.toUpperCase()}" for itself changes nothing`);
+        fail(`${doing} "${sw.letter.toUpperCase()}" for itself changes nothing`);
       }
       const need = sw.fromBlank ? BLANK : sw.letter;
       if (!removeOne(rackCopy, need)) {
@@ -1503,54 +1535,136 @@ export class Game {
       olds.push({ x: sw.x, y: sw.y, tile: old });
     }
 
-    for (const sw of swaps) {
+    for (const sw of plays) {
       this.board.set(sw.x, sw.y, sw.fromBlank ? { isBlank: true, as: sw.letter } : { letter: sw.letter });
     }
     try {
       const words = [];
       const seen = new Set();
-      for (const sw of swaps) {
+      const wordsAt = plays.map(() => []);
+      plays.forEach((sw, i) => {
         let part = false;
         for (const d of DIR_NAMES) {
           const w = this.board.wordThrough(sw.x, sw.y, d);
           if (!w || w.cells.length < 2) continue;
           part = true;
           const id = `${d}:${w.cells[0].x},${w.cells[0].y}`;
+          wordsAt[i].push(id);
           if (seen.has(id)) continue;
           seen.add(id);
           words.push(w);
         }
-        if (!part) fail('every swapped tile must be part of a word');
-      }
+        if (!part) fail(`every ${past} tile must be part of a word`);
+      });
+      Game.#assertOneReach(wordsAt, verb);
       for (const w of words) {
         if (!this.dictionary.has(w.word)) fail(`"${w.word}" is not a real word`);
       }
 
-      // One tile out, one tile in, every time: the rack always has room.
-      for (const o of olds) rackCopy.push(o.tile.isBlank ? BLANK : o.tile.letter);
-      player.rack = rackCopy;
-
-      const n = swaps.length;
-      const face = swaps.reduce(
-        (acc, sw) => acc + (sw.fromBlank ? 0 : LETTER_VALUES[sw.letter]),
-        0,
-      );
-      const bonus = n * n;
-      const points = face + bonus;
+      const n = plays.length;
+      const list = words.map((w) => `"${w.word.toUpperCase()}"`).join(' & ');
       this.lastMove = { playerId, keys: [...keys] };
-      const took = olds.map((o) => (o.tile.isBlank ? BLANK : o.tile.letter));
+      const covered = [...keys];
+
+      if (keep) {
+        // One tile out, one tile in, every time: the rack always has room.
+        for (const o of olds) rackCopy.push(o.tile.isBlank ? BLANK : o.tile.letter);
+        player.rack = rackCopy;
+        const took = olds.map((o) => (o.tile.isBlank ? BLANK : o.tile.letter));
+        const fruits = this.#commit(
+          player, 0,
+          `swapped ${n} letter${n === 1 ? '' : 's'} into ${list} — letters, not points`,
+          covered,
+        );
+        return { points: 0, words: words.map((w) => w.word), took, fruits };
+      }
+
+      // A stack is paid for in letters: what you wrote over goes back into
+      // the bag everyone draws from. No premiums — an occupied square has
+      // long since been mined by whoever first landed on it — so the empty
+      // `changed` set here is the whole of that rule.
+      const points = words.reduce((acc, w) => acc + this.#payFor(player, w, EMPTY_KEYS), 0);
+      const repeats = words.filter((w) => this.#alreadyScored(player, w.word)).map((w) => w.word);
+      this.#noteScored(player, words.map((w) => w.word));
+      player.rack = rackCopy;
+      const gave = olds.map((o) => (o.tile.isBlank ? BLANK : o.tile.letter));
+      this.bag.put(...gave);
+      const note = repeats.length
+        ? ` (${repeats.map((w) => w.toUpperCase()).join(', ')} already scored today)`
+        : '';
       const fruits = this.#commit(
-        player,
-        points,
-        `swapped ${n} letter${n === 1 ? '' : 's'} into ` +
-          `${words.map((w) => `"${w.word.toUpperCase()}"`).join(' & ')}` +
-          `${n > 1 ? ` (+${bonus} for the combination)` : ''}`,
+        player, points,
+        `stacked ${n} letter${n === 1 ? '' : 's'} into ${list}${note}`,
+        covered,
       );
-      return { points, bonus, words: words.map((w) => w.word), took, fruits };
+      // Rewriting the board is playing a word: it counts towards the target,
+      // so a finish line can't be stalled at by restacking for ever.
+      this.wordsPlayed += 1;
+      const finished = this.goal !== null && this.wordsPlayed >= this.goal
+        ? this.#finish(`word ${this.goal} of ${this.goal}`)
+        : null;
+      return {
+        points, words: words.map((w) => w.word), repeats, gave, fruits,
+        wordsPlayed: this.wordsPlayed, wordsLeft: this.wordsLeft, finished,
+      };
     } catch (err) {
       for (const o of olds) this.board.set(o.x, o.y, o.tile);
       throw err;
     }
+  }
+
+  /**
+   * One reach, not several errands: after the first letter, every letter
+   * has to land in a word that already carries one of this turn's. Two
+   * letters are linked when the same word runs through both, so the move is
+   * legal exactly when that graph is connected — which is another way of
+   * saying you could have laid them down one at a time, each one landing in
+   * a word the ones before it had already touched.
+   *
+   * @param {string[][]} wordsAt the words each swapped cell belongs to
+   */
+  static #assertOneReach(wordsAt, verb) {
+    if (wordsAt.length < 2) return;
+    const parent = wordsAt.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const owner = new Map();
+    wordsAt.forEach((ids, i) => {
+      for (const id of ids) {
+        if (!owner.has(id)) {
+          owner.set(id, i);
+          continue;
+        }
+        const a = find(owner.get(id));
+        const b = find(i);
+        if (a !== b) parent[a] = b;
+      }
+    });
+    const root = find(0);
+    if (wordsAt.some((_, i) => find(i) !== root)) {
+      fail(`every letter after the first must ${verb} into a word the others already touch`);
+    }
+  }
+
+  /**
+   * Draw a line under the day: yesterday's scores go into the record, the
+   * winner takes a ★, everyone gets a fresh rack and the start star moves.
+   * The board stays. A finished game reopens on the new day — which is the
+   * gentler of the admin's two ways to play on, the other being a restart
+   * that wipes the board.
+   */
+  newDay({ playerId }) {
+    this.#maybeRollover();
+    this.#assertAdmin(playerId);
+    const winners = this.startNewDay().map((w) => w.name);
+    if (this.over) {
+      this.over = null;
+      this.wordsPlayed = 0; // the same finish line, run again
+      this.turnId = null;
+      this.#advanceTurn(this.lastPlayerId ?? this.players.length - 1);
+      this.log.push('a new day — the game is on again ✦');
+      this.#resolveTurn();
+    }
+    return { winners, day: this.day, startCell: { ...this.startCell } };
   }
 
   /** Dispatch a move described as plain data (used by the network server). */
@@ -1560,6 +1674,8 @@ export class Game {
         return this.place(move);
       case 'swap':
         return this.swap(move);
+      case 'stack':
+        return this.stack(move);
       case 'exchange':
         return this.exchange(move);
       case 'pass':
@@ -1586,6 +1702,8 @@ export class Game {
         return this.forfeit(move);
       case 'away':
         return this.setAway(move);
+      case 'newDay':
+        return this.newDay(move);
       default:
         fail(`unknown move type: ${move?.type}`);
     }

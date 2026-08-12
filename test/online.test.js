@@ -132,3 +132,40 @@ test('a CPU seat can be added to an online game and plays for itself', async () 
   const anon = await handleAction(store, { action: 'addcpu', id: ana.id, playerId: 0, token: 'nope' });
   assert.equal(anon.status, 403);
 });
+
+test('stacking and calling a new day both travel over the wire', async () => {
+  const store = memoryStore();
+  const { ana, ben } = await setupGame(store);
+  await rigRack(store, ana.id, 0, ['c', 'a', 't', 'e', 'e', 'e', 'e']);
+  await handleAction(store, {
+    action: 'move', id: ana.id, playerId: 0, token: ana.token,
+    move: {
+      type: 'place',
+      tiles: [{ x: 0, y: 0, letter: 'c' }, { x: 1, y: 0, letter: 'a' }, { x: 2, y: 0, letter: 't' }],
+    },
+  });
+
+  // Ben writes over the A, keeping the points rather than the letter.
+  await rigRack(store, ana.id, 1, ['o', 'e', 'e', 'e', 'e', 'e', 'e']);
+  const stacked = await handleAction(store, {
+    action: 'move', id: ana.id, playerId: 1, token: ben.token,
+    move: { type: 'stack', stacks: [{ x: 1, y: 0, letter: 'o' }] },
+  });
+  assert.equal(stacked.status, 200);
+  assert.deepEqual(stacked.data.result.words, ['cot']);
+  assert.equal(stacked.data.result.points, 5);
+  assert.deepEqual(stacked.data.result.gave, ['a']);
+
+  // Only the admin can call the day, and it banks the scores.
+  const refused = await handleAction(store, {
+    action: 'move', id: ana.id, playerId: 1, token: ben.token, move: { type: 'newDay' },
+  });
+  assert.equal(refused.status, 400);
+  const day = await handleAction(store, {
+    action: 'move', id: ana.id, playerId: 0, token: ana.token, move: { type: 'newDay' },
+  });
+  assert.equal(day.status, 200);
+  assert.equal(day.data.game.day, 2);
+  assert.deepEqual(day.data.result.winners, ['Ana']);
+  assert.equal(day.data.game.players[0].score, 0);
+});

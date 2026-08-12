@@ -232,3 +232,37 @@ test('an admin who removes a seat below their own keeps their identity', async (
   assert.equal(anaState.data.game.players[0].name, 'Ana');
   assert.equal(ben.token !== cleo.token, true);
 });
+
+// The end of a game is not the end of the table: the admin can call a new
+// day, which keeps the board and puts the game back in play, or a restart,
+// which wipes it.
+
+test('a new day banks the scores and puts a finished game back in play', () => {
+  const g = makeGame(['cat', 'cot'], {
+    mode: 'turns',
+    racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
+  });
+  g.setGoal({ playerId: 0, words: 1 });
+  g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
+  assert.ok(g.over, 'the first word was the last word');
+  // A finished game still has to survive the clock: nothing left to settle.
+  assert.equal(g.tickClock(), false);
+  assert.throws(() => g.pass({ playerId: 1 }), /the game is over/);
+
+  const cells = g.board.cells.size;
+  const r = g.newDay({ playerId: 0 });
+  assert.deepEqual(r.winners, ['Ana']);
+  assert.equal(g.players[0].stars, 1, 'the day was won and paid for');
+  assert.equal(g.over, null, 'and the game is on again');
+  assert.equal(g.board.cells.size, cells, 'the board stays: a new day, not a new game');
+  assert.equal(g.wordsPlayed, 0, 'the same finish line, run again');
+  assert.equal(g.players[0].score, 0);
+  assert.equal(g.turnId, 1, 'play carries on past whoever went last');
+  assert.equal(g.days.length, 1);
+});
+
+test('only the admin can call a new day', () => {
+  const g = makeGame(['cat'], { racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], []] });
+  assert.throws(() => g.newDay({ playerId: 1 }), /only the game admin/);
+  assert.equal(g.apply({ type: 'newDay', playerId: 0 }).day, 2);
+});

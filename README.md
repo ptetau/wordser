@@ -29,9 +29,11 @@ Turn on 🔔 *Tell me when it's my turn* and the browser taps you on the
 shoulder when a game is yours to move — including games in other tabs, which
 are polled once a minute in the background.
 
-Tap any letter on the board to swap one of yours in and keep the one you
-prise off; tap more letters, anywhere, to trade several in the same move,
-and the panel prices the lot as you build it. Tapping an empty cell guesses which way the word should run from the
+Drag a tile from your tray onto a letter already down — or tap the letter —
+to write over it, and keep going along the words it touches; the panel
+prices the pile both ways as you build it, as a **⇄ swap** (you keep the
+letters, and score nothing) or a **▦ stack** (the words score, and the
+letters go to the bag). Tapping an empty cell guesses which way the word should run from the
 letters around it — a slot between two tiles, a neighbour on one side, or
 the roomier axis at a corner — and when nothing is touching it points at
 the nearest word instead, along the axis that word lies on. Space or the
@@ -106,8 +108,14 @@ npm test           # engine + API test suite (node --test, no dependencies)
 - **A game with an end, if you want one.** The admin can set a target — say
   25 words — and the corner of the board counts down to it. The game
   finishes the moment the last word goes down, the top score wins, and the
-  board stays exactly as it ended. Without a target the game runs on
-  forever, one day at a time, the way it always has.
+  board stays exactly as it ended. The panel puts up the **final table** —
+  everyone's score in order, the winner picked out — the board throws
+  confetti over it, and the admin gets the two ways on: **★ new day**, which
+  banks the scores into the record, hands out the day's star, deals fresh
+  racks and plays on over the same board, or **↺ new game**, which wipes it
+  and starts from nothing. Everyone else is told who they're waiting for.
+  Without a target the game runs on forever, one day at a time, the way it
+  always has.
 - **Forfeiting.** Any player can give up: their letters go back into the
   day's bag and their seat closes behind them, exactly as if the admin had
   removed them. If it leaves one player standing, that player has won.
@@ -179,15 +187,23 @@ npm test           # engine + API test suite (node --test, no dependencies)
   swapping, exchanging) also cancels it. If the timer
   expires with no objection, the day ends. Passing leaves the proposal
   running, and CPU players always agree.
-- **Swapping.** The one way to change what is already down. Put a letter of
-  yours on any board cell and keep the one you prise off; do it to as many
-  cells as you like, across as many words as you like, in a single move.
-  Every word the changes touch must still be real. It takes your turn and
-  pays the face value of the tiles you laid plus **n points for each of the
-  n letters swapped** — one letter earns 1, three earn 9 — so reaching
-  across several words at once is worth far more than three separate pokes.
-  Each letter you take replaces the tile you spent, so your rack keeps its
-  size. (Stealing and overwriting are gone; this replaced them both.)
+- **Writing over what is already down.** Put a letter of yours on any
+  occupied cell — drag a tile onto it, or tap it — and keep going: as many
+  cells as you like in one move, so long as **each letter after the first
+  lands in a word one of the others already touches**. A turn is one reach
+  across the board, not errands in three places. Every word the changes
+  touch must still be real, and it takes your turn either way. What it
+  settles as is yours to choose when you commit, and the panel prices both:
+  - **⇄ Swap** — you keep every letter you prise off (one in, one out, so
+    your rack keeps its size) and **score nothing at all**. A raid for
+    letters.
+  - **▦ Stack** — the words you have rewritten **pay you**, once a day each
+    like any other word, and the letters you wrote over are gone: back into
+    the bag everyone draws from. No premiums — those squares were mined by
+    the letters that first landed on them. A stack counts as a word played,
+    so it moves a finish line along.
+
+  (Stealing and overwriting are gone; these replaced them both.)
 - **A swept tray.** Play every tile of a full rack in one word and the whole
   word is **doubled**, on top of the 50-point bingo. It wants a full tray:
   arrive with seven or more and leave with nothing.

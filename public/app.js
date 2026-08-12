@@ -5,6 +5,7 @@ import {
 // the board — placing, swapping — is a play, and is not among them.
 const NON_TURN_MOVES = new Set([
   'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode', 'skip', 'away',
+  'newDay',
 ]);
 import { buildWordList, takeCpuTurn } from './cpu.js';
 import { Dictionary } from './engine/dictionary.js';
@@ -757,7 +758,7 @@ function rackTap(letter, index) {
     return;
   }
   if (swapping) {
-    status('tap a letter on the board to swap it, then choose what to put there', '');
+    status('drag this onto a letter on the board, or tap the letter to choose', '');
     return;
   }
   if (placement) {
@@ -804,7 +805,7 @@ function letterGrid(box, { available = null, onPick }) {
 function renderActions() {
   const box = $('cell-actions');
   if (game.over) {
-    box.innerHTML = '<span class="muted">The game is finished. Start another under <i>Players &amp; setup</i>.</span>';
+    box.innerHTML = '<span class="muted">The game is finished — the final table is above.</span>';
     $('end-day').hidden = true;
     return;
   }
@@ -917,7 +918,11 @@ function renderActions() {
       });
       return;
     }
-    const preview = previewSwap();
+    // The same letters settle two ways, so both are priced side by side and
+    // the choice is made at the last moment: keep what you prise off, or
+    // keep the points.
+    const asSwap = previewOverwrite('swap');
+    const asStack = previewOverwrite('stack');
     const list = swapping.picks
       .map((s) => {
         const old = game.board.get(s.x, s.y);
@@ -926,16 +931,17 @@ function renderActions() {
       .join(' · ');
     const n = swapping.picks.length;
     const note = !n
-      ? '<span class="muted">tap the letters on the board you want to trade for</span>'
-      : preview?.ok
-        ? `<span class="preview-ok">${preview.points} pts${n > 1 ? ` (+${preview.bonus} for ${n} at once)` : ''}</span>`
-        : `<span class="preview-bad">${esc(preview?.message ?? 'not a legal swap')}</span>`;
-    box.innerHTML = `<b>Swapping:</b> ${list || '…'} · ${note}
-      <div class="muted" style="margin-top:2px">every letter you swap pays ${n || 'n'} — keep going while it stays legal</div>
+      ? '<span class="muted">tap a letter on the board, or drag one of yours onto it</span>'
+      : asSwap?.ok || asStack?.ok
+        ? `<span class="preview-ok">${(asStack?.words ?? asSwap?.words ?? []).map((w) => w.toUpperCase()).join(' & ')}</span>`
+        : `<span class="preview-bad">${esc(asSwap?.message ?? asStack?.message ?? 'not a legal move')}</span>`;
+    box.innerHTML = `<b>Writing over:</b> ${list || '…'} · ${note}
+      <div class="muted" style="margin-top:2px">⇄ <b>swap</b> keeps the ${n === 1 ? 'letter' : 'letters'} you prise off and scores nothing · ▦ <b>stack</b> scores the words and the letters go to the bag</div>
       <div class="place-controls">
         <button id="swap-cancel">✕<span class="lbl">cancel</span></button>
         <button id="swap-undo" ${n ? '' : 'disabled'}>⌫<span class="lbl">undo</span></button>
-        <button id="swap-go" class="${preview?.ok ? 'primary' : ''}" ${preview?.ok ? '' : 'disabled'}>✓<span class="lbl">${preview?.ok ? `swap ${preview.points}` : 'swap'}</span></button>
+        <button id="swap-go" ${asSwap?.ok ? '' : 'disabled'}>⇄<span class="lbl">${asSwap?.ok ? `swap ${n}` : 'swap'}</span></button>
+        <button id="stack-go" class="${asStack?.points ? 'primary' : ''}" ${asStack?.ok ? '' : 'disabled'}>▦<span class="lbl">${asStack?.ok ? `stack ${asStack.points}` : 'stack'}</span></button>
       </div>`;
     $('swap-cancel').onclick = () => {
       swapping = null;
@@ -945,8 +951,9 @@ function renderActions() {
       swapping = { picks: swapping.picks.slice(0, -1), at: null };
       refresh();
     };
-    $('swap-go').onclick = commitSwap;
-    if (preview?.ok) glint($('swap-go'), 'play');
+    $('swap-go').onclick = () => commitOverwrite('swap');
+    $('stack-go').onclick = () => commitOverwrite('stack');
+    if (asStack?.points) glint($('stack-go'), 'play');
     return;
   }
   if (placement) {
@@ -987,7 +994,7 @@ function renderActions() {
   }
   if (!selected || !game.board.get(selected.x, selected.y)) {
     box.innerHTML =
-      '<span class="muted">Tap an empty cell to spell a word, or a letter on the board to swap it.</span>';
+      '<span class="muted">Tap an empty cell to spell a word. Drag one of your tiles onto a letter already down to swap or stack it.</span>';
     const me = game.players[currentPlayer];
     if (me) {
       const ex = document.createElement('button');
@@ -1066,7 +1073,7 @@ function renderActions() {
       refresh();
     });
   }
-  mkBtn('Swap this letter for one of yours', () => {
+  mkBtn('Write over this letter ⇄ ▦', () => {
     if (!requirePlayer()) return;
     markUsed('swap');
     swapping = { picks: [], at: { x: selected.x, y: selected.y } };
@@ -1265,22 +1272,56 @@ function renderGoal() {
     : `word <b>${game.wordsPlayed + 1}</b> of ${game.goal}`;
 }
 
-/** When a finite game has finished, the panel says so instead of offering moves. */
+/**
+ * The end of a game: the final table, in full, and the two ways on. A new
+ * day banks these scores and plays on over the same board; a new game wipes
+ * it. Both are the admin's to call — everyone else is told who to wait for.
+ */
 function renderGameOver() {
   const el = $('game-over');
   el.hidden = !game.over;
   if (!game.over) return;
-  const { winners, best } = game.over;
-  const standing = [...game.players]
+  const { winners, best, why } = game.over;
+  const table = [...game.players]
     .sort((a, b) => b.score - a.score)
-    .map((p) => `${esc(p.name)} ${p.score}`)
-    .join(' · ');
+    .map((p, i) => {
+      const won = winners.includes(p.name);
+      const stars = p.stars ? ` <span class="stars">★${p.stars}</span>` : '';
+      return `<div class="final-row${won ? ' won' : ''}">
+        <span class="place">${won ? '🏆' : `${i + 1}.`}</span>
+        <span class="who">${esc(p.name)}${stars}</span>
+        <span class="pts">${p.score}</span>
+      </div>`;
+    })
+    .join('');
+  const me = online() ? session.playerId : currentPlayer;
+  const admin = game.players[game.adminId];
+  const controls = !online() || (me != null && game.isAdmin(me))
+    ? `<div class="place-controls">
+         <button id="over-day">★<span class="lbl">new day</span></button>
+         <button id="over-new" class="primary">↺<span class="lbl">new game</span></button>
+       </div>
+       <div class="muted" style="margin-top:4px">a new day keeps the board and banks these scores · a new game starts from nothing</div>`
+    : `<div class="muted" style="margin-top:6px">waiting for ${esc(admin?.name ?? 'the admin')} to start the next one 👑</div>`;
   el.innerHTML = `<div class="trophy">🏆 ${
     winners.length
       ? `${winners.map(esc).join(' & ')} ${winners.length > 1 ? 'share it' : 'wins'} on ${best}`
       : 'game over'
   }</div>
-    <div class="final">${standing || 'nobody left at the table'}</div>`;
+    <div class="final">${why ?? ''}</div>
+    <div class="final-table">${table || '<div class="final">nobody left at the table</div>'}</div>
+    ${controls}`;
+  const day = $('over-day');
+  if (day) {
+    day.onclick = () =>
+      doMove({ type: 'newDay', playerId: game.adminId }, (r) =>
+        r.winners.length
+          ? `day won by ${r.winners.join(' & ')} ★ — day ${r.day} begins`
+          : `day ${r.day} begins`,
+      );
+  }
+  const again = $('over-new');
+  if (again) again.onclick = askRestart;
 }
 
 function renderDayVote() {
@@ -1419,7 +1460,13 @@ function doRestart(firstId) {
   if (!confirm(`Start the whole game again? The board, the scores and the record all go, and ${name} leads off.`)) {
     return;
   }
-  doMove({ type: 'restart', firstId }, (r) => `a fresh game — ${game.players[r.first].name} leads off ✦`);
+  // Round one screen whoever is holding it speaks for the table, so the
+  // move goes out under the admin's name. Online the server ignores this
+  // and uses the session's own seat, as it should.
+  doMove(
+    { type: 'restart', firstId, playerId: game.adminId },
+    (r) => `a fresh game — ${game.players[r.first].name} leads off ✦`,
+  );
 }
 
 function adoptView(d) {
@@ -1483,6 +1530,30 @@ function noteFinish() {
       : 'game over',
     'good',
   );
+  if (winners.length) celebrateFinish();
+}
+
+/**
+ * Somebody has won: the board throws a party over it. Plain DOM confetti,
+ * bounded and self-removing, so the canvas render loop never sees it.
+ */
+const CONFETTI = ['🏆', '🎉', '⭐', '🎊', '✨', '🥳'];
+function celebrateFinish() {
+  if (reducedMotion?.matches) return;
+  const stage = $('stage');
+  if (!stage) return;
+  for (let i = 0; i < 30; i++) {
+    const bit = document.createElement('span');
+    bit.className = 'confetti';
+    bit.textContent = CONFETTI[i % CONFETTI.length];
+    bit.style.left = `${Math.random() * 96}%`;
+    bit.style.fontSize = `${14 + Math.random() * 20}px`;
+    bit.style.setProperty('--drift', `${(Math.random() * 2 - 1) * 90}px`);
+    bit.style.setProperty('--spin', `${(Math.random() * 2 - 1) * 540}deg`);
+    bit.style.animationDelay = `${Math.random() * 800}ms`;
+    stage.appendChild(bit);
+    setTimeout(() => bit.remove(), 4500);
+  }
 }
 
 /** Keep this table in the device's own list, so the games menu knows it. */
@@ -1612,13 +1683,19 @@ function previewMove() {
   }
 }
 
-/** Dry-run the pending swaps, so the panel can price them as they build. */
-function previewSwap() {
+/**
+ * Dry-run the pending picks as one move or the other, so the panel can
+ * price both while they build. The two are equally legal — they differ only
+ * in what you walk away with.
+ */
+function previewOverwrite(kind) {
   if (currentPlayer == null || !swapping?.picks.length) return null;
   try {
     const clone = Game.fromJSON(game.toJSON(), { dictionary });
-    const r = clone.swap({ playerId: currentPlayer, swaps: swapping.picks });
-    return { ok: true, points: r.points, bonus: r.bonus, words: r.words };
+    const r = kind === 'swap'
+      ? clone.swap({ playerId: currentPlayer, swaps: swapping.picks })
+      : clone.stack({ playerId: currentPlayer, stacks: swapping.picks });
+    return { ok: true, points: r.points, words: r.words };
   } catch (err) {
     if (err instanceof GameError) return { ok: false, message: err.message };
     console.error(err);
@@ -1628,15 +1705,24 @@ function previewSwap() {
 
 const gotName = (l) => (l === BLANK ? 'wildcard' : l.toUpperCase());
 
-function commitSwap() {
+function commitOverwrite(kind) {
   if (!swapping?.picks.length) return;
+  markUsed('swap');
+  if (kind === 'swap') {
+    doMove(
+      { type: 'swap', swaps: swapping.picks },
+      (r) =>
+        `swapped ${r.took.length} letter${r.took.length === 1 ? '' : 's'} into ` +
+        `${r.words.map((w) => w.toUpperCase()).join(' & ')} — took ${r.took.map(gotName).join(', ')}`,
+    );
+    return;
+  }
   doMove(
-    { type: 'swap', swaps: swapping.picks },
+    { type: 'stack', stacks: swapping.picks },
     (r) =>
-      `swapped ${r.took.length} letter${r.took.length === 1 ? '' : 's'} into ` +
-      `${r.words.map((w) => w.toUpperCase()).join(' & ')} for ${r.points}` +
-      `${r.took.length > 1 ? ` (+${r.bonus} for the combination)` : ''}` +
-      ` — took ${r.took.map(gotName).join(', ')}`,
+      `stacked ${r.words.map((w) => w.toUpperCase()).join(' & ')} for ${r.points}` +
+      `${r.repeats?.length ? ` (${r.repeats.map((w) => w.toUpperCase()).join(', ')} already scored today)` : ''}` +
+      ` — ${r.gave.map(gotName).join(', ')} went to the bag${fruitNote(r)}`,
   );
 }
 
@@ -2450,7 +2536,7 @@ function typeLetter(letter, { preferBlank = false, silent = false, at = null } =
   // anything else there is somebody's word, and the swap move is for that.
   if (sitting) {
     if (!sitting.isBlank) {
-      if (!silent) status('that cell is taken — swap that letter instead', 'error');
+      if (!silent) status('that cell is taken — drag a tile onto it to write over it', 'error');
       return false;
     }
     placement.entries = placement.entries.filter((e) => !(e.x === cell.x && e.y === cell.y));
@@ -2617,14 +2703,52 @@ function swapInLayout(p, a, b) {
 }
 
 /**
+ * A tile landing on a letter already down. It joins the pile you are
+ * writing over this turn, which commits as either a swap or a stack — the
+ * panel prices both. Dropping on a cell you have already picked replaces
+ * that pick rather than refusing it.
+ */
+function pickOverwrite(letter, cell) {
+  const picks = swapping?.picks ?? [];
+  const at = picks.findIndex((s) => s.x === cell.x && s.y === cell.y);
+  const rest = at === -1 ? picks : picks.filter((_, i) => i !== at);
+  if (letter === BLANK) {
+    // A wildcard needs telling what it stands for, so the grid asks first.
+    swapping = { picks: rest, at: { x: cell.x, y: cell.y } };
+    refresh();
+    return;
+  }
+  const sitting = game.board.get(cell.x, cell.y);
+  if (sitting && Board.effective(sitting) === letter) {
+    status(`there is already a ${letter.toUpperCase()} there`, 'error');
+    return;
+  }
+  markUsed('swap');
+  placement = null; // one move at a time
+  swapping = { picks: [...rest, { x: cell.x, y: cell.y, letter, fromBlank: false }], at: null };
+  refresh();
+}
+
+/**
  * Land a dragged letter on the board: it begins a word there, or carries on
  * the one being spelled when dropped on the cell the arrow is pointing at.
  */
 function dropOnBoard(letter, cell) {
   if (!requirePlayer()) return;
   const sitting = game.board.get(cell.x, cell.y);
-  if (sitting && !sitting.isBlank) {
-    status('there is a letter there already — tap it to swap it instead', 'error');
+  // Dropped on somebody's letter, it writes over it — which is a swap or a
+  // stack, decided when you commit. Mid-word a wildcard already down is a
+  // different thing: the word being spelled redefines it in passing.
+  if (sitting && !(placement && sitting.isBlank)) {
+    if (placement?.entries.length) {
+      status('that cell is taken — finish or cancel the word first', 'error');
+      return;
+    }
+    pickOverwrite(letter, cell);
+    return;
+  }
+  if (swapping?.picks.length) {
+    status('drop it on a letter already down — that is what a swap writes over', 'error');
     return;
   }
   if (!placement) {
@@ -2644,9 +2768,11 @@ function dropOnBoard(letter, cell) {
 
 rackBox.addEventListener('pointerdown', (e) => {
   // Arranging your letters mid-word is the whole point of the tray, so a
-  // placement is no reason to lock it. Exchanging and swapping are: there a
-  // tap means "pick this one", and a half-drag would pick the wrong tile.
-  if (swapping || exchanging) return;
+  // placement is no reason to lock it — nor is a half-built swap, which is
+  // built by dragging letters onto the board in the first place. Exchanging
+  // is: there a tap means "pick this one", and a half-drag would pick the
+  // wrong tile.
+  if (exchanging) return;
   const tile = e.target.closest('.tile');
   if (!tile) return;
   const r = tile.getBoundingClientRect();
@@ -3035,7 +3161,8 @@ $('goal-words').addEventListener('change', (e) => {
   );
 });
 
-$('restart-game').addEventListener('click', () => {
+/** Wipe the board and play again — asking the table who leads off. */
+function askRestart() {
   const me = online() ? session.playerId : currentPlayer;
   if (online() && !game.isAdmin(me)) return;
   const humans = game.players.filter((p) => !p.isCpu);
@@ -3046,7 +3173,9 @@ $('restart-game').addEventListener('click', () => {
   if (pick === null) return;
   const chosen = humans[Math.max(0, Math.min(humans.length - 1, Number(pick) - 1))];
   doRestart(chosen?.id ?? me);
-});
+}
+
+$('restart-game').addEventListener('click', askRestart);
 
 $('mode-turns').addEventListener('change', (e) => {
   const mode = e.target.checked ? 'turns' : 'free';
@@ -3120,6 +3249,11 @@ window.wordser = {
   get antic() { return antic; },
   cam,
   get placement() { return placement; },
+  get swapping() { return swapping; },
+  setSwapping(s) {
+    swapping = s;
+    refresh();
+  },
   get currentPlayer() { return currentPlayer; },
   /** Any tile on screen the current player isn't holding. Should be []. */
   trayGhosts() {

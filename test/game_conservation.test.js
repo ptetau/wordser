@@ -285,7 +285,7 @@ function fuzz(seed, turns) {
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
   const occupied = () => [...g.board.cells.keys()].map((k) => k.split(',').map(Number));
   const effective = (t) => (t.isBlank ? t.as : t.letter);
-  const tally = { place: 0, swap: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
+  const tally = { place: 0, swap: 0, stack: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
 
   for (let turn = 0; turn < turns; turn++) {
     const p = pick(g.players);
@@ -328,22 +328,29 @@ function fuzz(seed, turns) {
           g.place({ playerId: p.id, tiles });
           tally.place++;
         } else if (roll < 0.85) {
-          // Swap one to three board letters for rack letters at once.
+          // Write over one to three board letters at once — as a swap, which
+          // takes the letters, or a stack, which posts them back into the
+          // bag. Both have to be one reach, so the cells are taken along a
+          // line from the first: neighbours share the word running through
+          // them.
           const usable = p.rack.filter((l) => l !== BLANK);
           if (!usable.length) continue;
+          const [ox, oy] = pick(occupied());
+          const [dx, dy] = DIRS[rng() < 0.5 ? 'h' : 'v'];
           const n = 1 + Math.floor(rng() * Math.min(3, usable.length));
-          const swaps = [];
-          const taken = new Set();
+          const plays = [];
           for (let i = 0; i < n; i++) {
-            const [ox, oy] = pick(occupied());
-            const k = Board.key(ox, oy);
-            if (taken.has(k)) continue;
-            taken.add(k);
-            swaps.push({ x: ox, y: oy, letter: usable[i] });
+            if (!g.board.get(ox + i * dx, oy + i * dy)) break;
+            plays.push({ x: ox + i * dx, y: oy + i * dy, letter: usable[i] });
           }
-          if (!swaps.length) continue;
-          g.swap({ playerId: p.id, swaps });
-          tally.swap += 1;
+          if (!plays.length) continue;
+          if (rng() < 0.5) {
+            g.swap({ playerId: p.id, swaps: plays });
+            tally.swap += 1;
+          } else {
+            g.stack({ playerId: p.id, stacks: plays });
+            tally.stack += 1;
+          }
         } else if (roll < 0.93) {
           const n = 1 + Math.floor(rng() * Math.min(7, p.rack.length));
           g.exchange({ playerId: p.id, letters: p.rack.slice(0, n) });
@@ -373,7 +380,7 @@ function fuzz(seed, turns) {
 }
 
 test('thousands of random moves never mint or destroy a letter', () => {
-  let seen = { place: 0, swap: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
+  let seen = { place: 0, swap: 0, stack: 0, exchange: 0, choose: 0, fruit: 0, newDay: 0 };
   for (let seed = 1; seed <= 8; seed++) {
     const { game, tally } = fuzz(seed, 600);
     if (!tally.newDay) assert.equal(total(game), DAY_SIZE, `seed ${seed} ended off two full sets`);
@@ -382,7 +389,8 @@ test('thousands of random moves never mint or destroy a letter', () => {
   // The run is only meaningful if it actually exercised every path that
   // moves letters around, so hold it to that.
   assert.ok(seen.place > 200, `too few placements: ${seen.place}`);
-  assert.ok(seen.swap > 200, `too few swaps: ${seen.swap}`);
+  assert.ok(seen.swap > 100, `too few swaps: ${seen.swap}`);
+  assert.ok(seen.stack > 100, `too few stacks: ${seen.stack}`);
   assert.ok(seen.exchange > 50, `too few exchanges: ${seen.exchange}`);
   assert.ok(seen.choose > 5, `too few cherry choices: ${seen.choose}`);
   assert.ok(seen.fruit > 100, `too few fruits eaten: ${seen.fruit}`);

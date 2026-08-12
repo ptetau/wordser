@@ -157,7 +157,7 @@ test('a word pays a player once a day, however often they make it', () => {
   assert.deepEqual(benAgain.repeats, ['cat']);
 });
 
-test('a swap is a turn, and pays for itself', () => {
+test('a swap is a turn, and is paid for in letters', () => {
   const g = makeGame(['cat', 'cot'], {
     mode: 'turns',
     racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
@@ -166,7 +166,8 @@ test('a swap is a turn, and pays for itself', () => {
   assert.equal(g.turnId, 1);
 
   const r = g.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] });
-  assert.equal(r.points, 2); // the O is worth 1, plus 1x1 for the combination
+  assert.equal(r.points, 0); // no score: what you get is the A off the board
+  assert.deepEqual(r.took, ['a']);
   assert.equal(g.turnId, 0, 'the rotation moved on');
   assert.equal(g.lastPlayerId, 1);
   assert.equal(g.isTheirTurn(1), false);

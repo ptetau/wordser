@@ -16,10 +16,11 @@ test('the start star pays its double-word once, to whoever gets there first', ()
   const first = g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   assert.equal(first.points, 10); // (3+1+1) doubled by the star
 
-  // Ben swaps the A for an O. A swap pays the tile, never the square: the
-  // star's double-word was collected by CAT and is gone for good.
+  // Ben swaps the A for an O. A swap pays nothing at all — and even a stack,
+  // which does pay for its words, never gets the square: the star's
+  // double-word was collected by CAT and is gone for good.
   const second = g.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] });
-  assert.equal(second.points, 1 + 1); // the O, plus the one-letter combination
+  assert.equal(second.points, 0);
   assert.equal(g.spent.has('0,0'), true);
 });
 
@@ -61,9 +62,10 @@ test('the ore does not grow back with the new day', () => {
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   g.startNewDay();
   assert.equal(g.spent.has('0,0'), true);
-  g.players[1].rack = ['o'];
-  // A swap on the spent star pays the tile and the combination, nothing more.
-  assert.equal(g.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] }).points, 2);
+  g.players[1].rack = ['o', 'c'];
+  // A stack on the spent star pays for its word, never for the square:
+  // COT is 5 flat, not the 10 the double-word would have made of it.
+  assert.equal(g.stack({ playerId: 1, stacks: [{ x: 1, y: 0, letter: 'o' }] }).points, 5);
 });
 
 test('fresh ground still pays: the rule is per square, not per board', () => {

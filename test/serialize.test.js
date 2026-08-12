@@ -34,7 +34,7 @@ test('toJSON/fromJSON round-trips a game in progress', () => {
   // The revived game keeps playing by the same rules.
   const r = g2.swap({ playerId: 1, swaps: [{ x: 1, y: 0, letter: 'o' }] });
   assert.equal(g2.board.wordThrough(0, 0, 'h').word, 'cot');
-  assert.equal(r.points, 2); // the O, plus one for the single-letter swap
+  assert.equal(r.points, 0); // a swap is paid in letters, not points
   // The ousted tile was the wildcard.
   assert.ok(g2.players[1].rack.includes('*'));
 });
