@@ -50,6 +50,9 @@ test('the day rolls over automatically with the clock', () => {
   assert.equal(g.day, 2);
   assert.equal(g.players[0].stars, 1); // yesterday's star is hers
   assert.equal(g.players[0].score, 0);
+  // A new day opens its own island; this test is about the clock, so keep
+  // playing on yesterday's.
+  g.islandCell = { x: 0, y: 0 };
 
   // Closing one day and opening the next is still two turns in a row, so
   // Ana has to wait for Ben even across the boundary.

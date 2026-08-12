@@ -296,13 +296,21 @@ function fuzz(seed, turns) {
       if (p.pendingChoice) {
         g.choosePendingLetter({ playerId: p.id, index: Math.floor(rng() * p.pendingChoice.length) });
         tally.choose++;
-      } else if (!g.board.cells.size) {
-        const tiles = p.rack.slice(0, 3).map((letter, i) => ({
-          x: g.startCell.x + i,
-          y: g.startCell.y,
-          letter: letter === BLANK ? 'a' : letter,
-          fromBlank: letter === BLANK,
-        }));
+      } else if (!g.island().size) {
+        // Nothing on today's ★ yet — that is where the day has to open.
+        const tiles = [];
+        for (let i = 0; tiles.length < 3 && i < 5; i++) {
+          const x = g.startCell.x + i;
+          if (g.board.get(x, g.startCell.y)) continue;
+          const letter = p.rack[tiles.length];
+          if (letter === undefined) break;
+          tiles.push({
+            x, y: g.startCell.y,
+            letter: letter === BLANK ? 'a' : letter,
+            fromBlank: letter === BLANK,
+          });
+        }
+        if (!tiles.length) continue;
         g.place({ playerId: p.id, tiles });
         tally.place++;
       } else {
@@ -315,10 +323,13 @@ function fuzz(seed, turns) {
           const side = rng() < 0.5 ? 1 : -1;
           const n = 1 + Math.floor(rng() * Math.min(3, p.rack.length));
           const tiles = [];
+          // Every so often the word writes straight over what is there,
+          // which is a placement too — and puts letters back in the bag.
+          const overwrite = rng() < 0.3;
           for (let i = 1; i <= n; i++) {
             const x = ox + side * i * dx;
             const y = oy + side * i * dy;
-            if (g.board.get(x, y)) break;
+            if (g.board.get(x, y) && !overwrite) break;
             const letter = p.rack[tiles.length];
             if (letter === undefined) break;
             tiles.push({ x, y, letter: letter === BLANK ? 'a' : letter, fromBlank: letter === BLANK });

@@ -29,11 +29,13 @@ Turn on 🔔 *Tell me when it's my turn* and the browser taps you on the
 shoulder when a game is yours to move — including games in other tabs, which
 are polled once a minute in the background.
 
-Drag a tile from your tray onto a letter already down — or tap the letter —
-to write over it, and keep going along the words it touches; the panel
-prices the pile both ways as you build it, as a **⇄ swap** (you keep the
-letters, and score nothing) or a **▦ stack** (the words score, and the
-letters go to the bag). Tapping an empty cell guesses which way the word should run from the
+A word can be laid straight over letters already down: type **HUMAN** across
+**MEN** and the M and N are reused where they stand while the E is written
+over. With no word on the go, a tile dropped on a letter starts a raid
+instead — keep going along the words it touches, and the panel prices the
+pile both ways as you build it, as a **⇄ swap** (you keep the letters, and
+score nothing) or a **▦ stack** (the words score, and the letters go to the
+bag). Tapping an empty cell guesses which way the word should run from the
 letters around it — a slot between two tiles, a neighbour on one side, or
 the roomier axis at a corner — and when nothing is touching it points at
 the nearest word instead, along the axis that word lies on. Space or the
@@ -42,16 +44,20 @@ direction button overrides it, and the arrow keys walk the cursor about. The pla
 word won't do. Whose go it is is on a plaque in the top-left corner of the board — the
 current player's name, large enough to settle an argument across a table —
 and every seat in the players list is tagged **to play** or **waiting**. The view stays where you
-put it; switch on *Glide the view to each new word* under the table's rules
+put it; switch on *Glide the view to each new word* under **⚙**
 if you would rather it follow the play. Drag to
 pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
 **⌖** returns you to the last word played — handy on a 448-cell world.
 The last word always wears a halo: light spilling onto the board around it,
 never over the letters, so somebody else's move is obvious the moment you
 look.
-Once the first word is down, the setup controls (adding players, the share
-link, ending the day, the word target) fold away under *Players & setup* so
-the panel is mostly the game; open the fold any time and it stays open. The
+Three buttons sit at the top of the panel and open three panels, all built
+the same way, all closed by Esc or a click outside: **⚙ this table** (strict
+turns or free-for-all, a word target, "I'm busy — pass my turns", gliding
+the camera, starting again, ending the day), **🎲 your games** and **👤 your
+account**. Seats — adding players, the share link, adding a robot — stay in
+the panel under *Players & seats*, and fold away once the first word is
+down; open the fold any time and it stays open. The
 arrow keys drive the board cursor (the viewport follows): type to spell from
 it, press Enter on a tile to swap it, and `+`/`-` zoom. The tray is twelve addressable slots rather than a packed row:
 drag a tile into any of them, including the empty ones, and it stays where
@@ -127,9 +133,12 @@ npm test           # engine + API test suite (node --test, no dependencies)
   invite a friend or add a CPU.
 - **"Don't wait for me."** A player who knows they are busy can say so, and
   their turns pass themselves the moment they arrive — a game of four
-  doesn't stall all afternoon on one of them. It is theirs to set and theirs
-  to clear (the turn banner carries an *I'm back* button), and playing
-  anything at all clears it. Robots are never busy, and a table where
+  doesn't stall all afternoon on one of them. The admin can also set it on
+  a seat that has simply gone quiet: every other row in the players list
+  carries a **💤** for exactly that. It is never the admin's to keep,
+  though — the player takes their turns back with the same button, with the
+  *I'm back* button on the turn banner, or just by playing, which clears it
+  too. Robots are never busy, and a table where
   everybody is waits rather than spinning: somebody has to be able to move.
   With one opponent away the other simply plays on, since the passed turn
   counts as their move.
@@ -187,6 +196,23 @@ npm test           # engine + API test suite (node --test, no dependencies)
   swapping, exchanging) also cancels it. If the timer
   expires with no objection, the day ends. Passing leaves the proposal
   running, and CPU players always agree.
+- **A word may run straight over what is already down.** Spelling no longer
+  stops at somebody else's letters: ones that already say what you are
+  typing come along for free, and the rest are written over — which spends a
+  tile from your rack and posts the old letter back into the bag. Type
+  **HUMAN** across **MEN**, or lay out `H U _ A _` and drop the three, and
+  the M and N are reused where they stand while the E is replaced. At least
+  one letter has to land on empty ground: a word still has to go somewhere
+  new, and a play made entirely of write-overs is a stack, below.
+- **Islands, and bridging to them.** Every day opens its own island, rooted
+  on that day's ★, and **every play must touch the island you are on**.
+  Yesterday's words are still there — drawn faded, because they are out of
+  bounds — and the only way back to them is to **build a bridge**: a line of
+  words out across the gap. The moment the two touch they are one island,
+  and all of it is in play again, letters and all. The new day's ★ is chosen
+  to make that a project rather than an expedition: it lands on clean ground
+  (99% empty within six cells) and never further from the words already down
+  than **a quarter of the day's bag** — 25 letters laid end to end.
 - **Writing over what is already down.** Put a letter of yours on any
   occupied cell — drag a tile onto it, or tap it — and keep going: as many
   cells as you like in one move, so long as **each letter after the first

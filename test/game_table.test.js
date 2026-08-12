@@ -390,3 +390,24 @@ test('an away seat can still be skipped by hand without breaking anything', () =
   assert.equal(g.turnId, 1);
   assert.equal(g.players[0].away, true);
 });
+
+test('the admin can pass a quiet seat\'s turns, and the seat can take them back', () => {
+  const g = table(['Ana', 'Ben', 'Cleo']);
+  // Ben has gone quiet and it is holding everyone up.
+  const r = g.setAway({ playerId: 0, targetId: 1, away: true });
+  assert.equal(r.away, true);
+  assert.equal(r.playerId, 1);
+  assert.equal(g.players[1].away, true);
+  assert.match(g.log.join('\n'), /Ana set Ben's turns to pass themselves/);
+
+  // It is never the admin's to keep: Ben takes his turns back himself.
+  g.setAway({ playerId: 1, away: false });
+  assert.equal(g.players[1].away, false);
+  assert.match(g.log.join('\n'), /Ben is back at the table/);
+
+  // Nobody else may set it on anybody else.
+  assert.throws(() => g.setAway({ playerId: 1, targetId: 2, away: true }), /only the game admin/);
+  // And it travels as a move like any other.
+  assert.equal(g.apply({ type: 'away', playerId: 0, targetId: 2, away: true }).away, true);
+  assert.equal(g.players[2].away, true);
+});

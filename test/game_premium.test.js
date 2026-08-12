@@ -62,6 +62,9 @@ test('the ore does not grow back with the new day', () => {
   g.place({ playerId: 0, tiles: tilesFor('cat', 0, 0) });
   g.startNewDay();
   assert.equal(g.spent.has('0,0'), true);
+  // The new day rooted its island on fresh ground; this test is about the
+  // premium, so put yesterday's word back in bounds.
+  g.islandCell = { x: 0, y: 0 };
   g.players[1].rack = ['o', 'c'];
   // A stack on the spent star pays for its word, never for the square:
   // COT is 5 flat, not the 10 the double-word would have made of it.

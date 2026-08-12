@@ -76,7 +76,10 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
     }
   };
 
-  if (game.board.isEmpty()) {
+  // Nothing on today's ★ yet — an empty board, or a new day beside
+  // yesterday's words — so the only legal play is the one that opens the
+  // island there.
+  if (!game.island().size) {
     for (const w of wordList) {
       if (attempts >= MAX_ATTEMPTS) break;
       const tiles = formable(w, rack);
@@ -89,9 +92,11 @@ export function takeCpuTurn(game, playerId, wordList, rng = Math.random) {
     return tryExchange(game, playerId);
   }
 
-  const anchors = [...game.board.cells.entries()].map(([k, tile]) => {
+  // Only today's island is in bounds, so only its letters are worth
+  // building from: an anchor out on an older one can never be played.
+  const anchors = [...game.island()].map((k) => {
     const [x, y] = k.split(',').map(Number);
-    return { x, y, letter: Board.effective(tile) };
+    return { x, y, letter: Board.effective(game.board.get(x, y)) };
   });
   for (let i = anchors.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));

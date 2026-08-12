@@ -229,7 +229,7 @@ test('the star jumps once, not on every move after', () => {
 
 // ------------------------------------------------------------- overwriting
 
-test('a swap is how you take a word apart now — overwriting is gone', () => {
+test('the old overwrite and steal moves are gone', () => {
   const g = makeGame(['cat', 'cot'], {
     racks: [['c', 'a', 't', 'e', 'e', 'e', 'e'], ['o', 'e', 'e', 'e', 'e', 'e', 'e']],
   });
@@ -238,10 +238,11 @@ test('a swap is how you take a word apart now — overwriting is gone', () => {
   assert.equal(typeof g.stealReplace, 'undefined');
   assert.throws(() => g.apply({ type: 'overwrite', playerId: 1, tiles: [] }), /unknown move/);
   assert.throws(() => g.apply({ type: 'steal', playerId: 1 }), /unknown move/);
-  // Placing on an occupied cell says where to go instead.
+  // A placement writes over letters on its way past, but it is still a
+  // placement: it has to put at least one letter on empty ground.
   assert.throws(
     () => g.place({ playerId: 1, tiles: [{ x: 1, y: 0, letter: 'o' }] }),
-    /swap that letter instead/,
+    /at least one letter on empty ground/,
   );
 });
 

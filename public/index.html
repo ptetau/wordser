@@ -10,7 +10,7 @@
 <body>
 <main>
   <div id="stage">
-    <canvas id="board"></canvas>
+    <canvas id="board" aria-label="the board — drag to pan, pinch or the ＋ － buttons to zoom, arrow keys to move the cursor"></canvas>
     <div id="nameplate" hidden aria-live="polite">
       <span class="who"></span>
       <span class="says"></span>
@@ -28,22 +28,58 @@
         <h1>wordser</h1>
         <p class="tagline">n-player scrabble on a looping world</p>
       </div>
-      <nav id="menubar">
-        <button id="games-btn" class="menu-btn" aria-haspopup="true" aria-expanded="false"
-                aria-label="your games" title="your games">
+      <nav id="menubar" aria-label="wordser menus">
+        <button id="table-btn" class="menu-btn" aria-haspopup="dialog" aria-expanded="false"
+                aria-controls="table-menu" aria-label="table rules" title="table rules">
+          ⚙
+        </button>
+        <button id="games-btn" class="menu-btn" aria-haspopup="dialog" aria-expanded="false"
+                aria-controls="games-menu" aria-label="your games" title="your games">
           🎲<span id="games-badge" class="badge" hidden></span>
         </button>
-        <button id="account-btn" class="menu-btn" aria-haspopup="true" aria-expanded="false" title="your account">
+        <button id="account-btn" class="menu-btn" aria-haspopup="dialog" aria-expanded="false"
+                aria-controls="account-menu" aria-label="your account" title="your account">
           👤<span class="lbl" id="account-btn-name">Sign in</span>
         </button>
       </nav>
-    </header>
 
     <div id="menu-layer" hidden>
-      <div id="games-menu" class="menu" hidden role="menu" aria-labelledby="games-btn">
+      <div id="table-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Table rules">
+        <div class="menu-head">
+          <span>This table</span>
+          <button class="mini menu-close" data-close="table" aria-label="close">✕</button>
+        </div>
+        <div id="table-rules">
+          <label id="mode-row" class="menu-toggle" hidden>
+            <span>Take strict turns</span>
+            <input type="checkbox" id="mode-turns" />
+          </label>
+          <label id="goal-row" class="menu-toggle" hidden>
+            <span>Play to a number of words</span>
+            <input type="number" id="goal-words" min="0" max="999" placeholder="off" aria-label="words to play to" />
+          </label>
+          <label id="away-row" class="menu-toggle" hidden>
+            <span>💤 I'm busy — pass my turns</span>
+            <input type="checkbox" id="away-me" />
+          </label>
+          <label id="fly-row" class="menu-toggle">
+            <span>Glide the view to each new word</span>
+            <input type="checkbox" id="fly-camera" />
+          </label>
+        </div>
+        <div class="menu-foot">
+          <button id="restart-game" hidden>↺ Start the game again</button>
+          <button id="end-day">End the day early ★</button>
+        </div>
+      </div>
+
+      <div id="games-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Your games">
         <div class="menu-head">
           <span>Your games</span>
-          <button id="games-refresh" class="mini" title="refresh the list">↻</button>
+          <span class="menu-head-tools">
+            <button id="games-refresh" class="mini" title="refresh the list" aria-label="refresh the list">↻</button>
+            <button class="mini menu-close" data-close="games" aria-label="close">✕</button>
+          </span>
         </div>
         <div id="my-games"></div>
         <div class="menu-foot">
@@ -51,8 +87,11 @@
         </div>
       </div>
 
-      <div id="account-menu" class="menu" hidden role="menu" aria-labelledby="account-btn">
-        <div class="menu-head"><span>Your account</span></div>
+      <div id="account-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Your account">
+        <div class="menu-head">
+          <span>Your account</span>
+          <button class="mini menu-close" data-close="account" aria-label="close">✕</button>
+        </div>
         <div id="account-out">
           <p id="account-status" class="muted">Sign in and your games — and your turn alerts — follow you to any device.</p>
           <div id="account-form">
@@ -81,13 +120,14 @@
         </div>
       </div>
     </div>
+    </header>
 
     <details id="setup-details" open>
-      <summary id="setup-summary">Players &amp; setup</summary>
+      <summary id="setup-summary">Players &amp; seats</summary>
       <section id="online-section">
         <h2>Online</h2>
         <div id="online-status" class="muted">Hot-seat mode: everyone shares this screen.</div>
-        <input id="online-name" placeholder="your name" maxlength="20" autocomplete="off" style="width:100%;margin-top:6px" />
+        <input id="online-name" placeholder="your name" maxlength="20" autocomplete="off" aria-label="your name" style="width:100%;margin-top:6px" />
         <div id="online-controls">
           <button id="create-online">Create online game</button>
         </div>
@@ -95,40 +135,21 @@
           <button id="join-online">Join this game</button>
         </div>
         <div id="share" hidden>
-          <input id="share-link" readonly />
+          <input id="share-link" readonly aria-label="link to share" />
           <button id="copy-link">Copy</button>
         </div>
       </section>
 
       <section id="setup-section">
         <form id="add-player-form">
-          <input id="player-name" placeholder="player name" maxlength="20" autocomplete="off" />
+          <input id="player-name" placeholder="player name" maxlength="20" autocomplete="off" aria-label="player name" />
           <button type="submit">Add player</button>
         </form>
       </section>
 
       <section id="cpu-section">
         <button id="add-cpu" style="width:100%">Add CPU player 🤖</button>
-        <button id="restart-game" hidden>↺ Start the game again</button>
-        <div id="table-rules">
-          <label id="mode-row" hidden>
-            <span>Take strict turns</span>
-            <input type="checkbox" id="mode-turns" />
-          </label>
-          <label id="goal-row" hidden>
-            <span>Play to a number of words</span>
-            <input type="number" id="goal-words" min="0" max="999" placeholder="off" />
-          </label>
-          <label id="away-row" hidden>
-            <span>⏭ I'm busy — pass my turns</span>
-            <input type="checkbox" id="away-me" />
-          </label>
-          <label id="fly-row">
-            <span>Glide the view to each new word</span>
-            <input type="checkbox" id="fly-camera" />
-          </label>
-        </div>
-        <button id="end-day">End the day early ★</button>
+        <p class="muted rules-pointer">The table's rules live under <b>⚙</b> at the top.</p>
       </section>
     </details>
 
@@ -166,13 +187,14 @@
       <ul>
         <li>Tap an empty cell, tap or type letters, <b>✓</b> plays. <b>✕</b> cancel · <b>→</b> direction · <b>⌫</b> undo. Or Enter, Space, Backspace, Esc.</li>
         <li><b>Letters go down in any order.</b> Type along the line, or drop tiles wherever you like — the ends first, the middle after. Tapping the board moves the cursor and leaves the letters where you put them; tap one of your own to take it back.</li>
-        <li>The first word covers the <b>★</b>; after that every word must touch what's down.</li>
+        <li><b>A word may run straight over letters already down.</b> Ones that already say what you are typing come along for free; the rest are written over, which spends a tile and posts the old letter back to the bag. Type <b>HUMAN</b> across <b>MEN</b> — or lay out <b>H U _ A _</b> and drop the three — and the M and N are reused, the E replaced. At least one letter must land on empty ground: a word has to go somewhere new.</li>
+        <li><b>Islands.</b> Each day opens its own island on a fresh <b>★</b>, and every play must touch the island you are on. Older days' words lie faded on the board, out of bounds — until somebody <b>bridges</b> out to them with a line of words, and then the two are one island and all of it is in play again. The new ★ is never further from the old words than a quarter of a bag of letters can span.</li>
         <li>The arrow is guessed from the letters nearby, or points at the nearest word.</li>
         <li>Nobody plays twice in a row. Games take turns by default; the admin can switch to free-for-all, and eight hours on your turn is skipped for you. A seat with no letters left passes itself.</li>
-        <li><b>Holding things up?</b> Each seat says how long it has been quiet, and the one with the turn carries <b>⏭</b> for the admin to move play on.</li>
-        <li><b>Busy today?</b> Tick <b>⏭ I'm busy — pass my turns</b> under <i>Players &amp; setup</i> and your turns pass themselves until you come back; the banner has an <b>I'm back</b> button whenever you want them again. If everybody is busy the game simply waits.</li>
+        <li><b>Holding things up?</b> Each seat says how long it has been quiet. The one with the turn carries <b>⏭</b> for the admin to move play on, and every seat carries <b>💤</b> to have its turns passed until whoever sits there comes back.</li>
+        <li><b>Busy today?</b> Tick <b>💤 I'm busy — pass my turns</b> under <i>⚙ table rules</i> and your turns pass themselves until you come back; the banner has an <b>I'm back</b> button whenever you want them again. If everybody is busy the game simply waits.</li>
         <li>When somebody joins a game already going, the table is offered a <b>fresh start</b> — and gets to choose who leads off.</li>
-        <li><b>Playing to a number of words?</b> Set one under <i>Players &amp; setup</i> and the corner of the board counts down. The game ends on the last word, the top score wins, and the final table goes up under Actions — where the admin picks <b>★ new day</b>, which keeps the board, or <b>↺ new game</b>, which starts from nothing.</li>
+        <li><b>Playing to a number of words?</b> Set one under <i>⚙ table rules</i> and the corner of the board counts down. The game ends on the last word, the top score wins, and the final table goes up under Actions — where the admin picks <b>★ new day</b>, which keeps the board, or <b>↺ new game</b>, which starts from nothing.</li>
         <li><b>🏳️ Forfeit</b> under Actions gives up: your letters go back in the bag and your seat closes. If you were the last opponent, the other player wins.</li>
       </ul>
       <h4>Your letters</h4>
@@ -181,9 +203,9 @@
         <li><b>⇄ Exchange</b> swaps letters back into the bag; <b>⏭ Pass</b> gives up your turn.</li>
         <li>One 100-tile bag a day to play from — the fruit have a second hundred of their own, so what they hand out never comes off the table. Once the playing bag is dry, <b>🌙 propose ending the day</b> — two minutes for anyone to object. Everyone passing ends it too.</li>
       </ul>
-      <h4>Writing over letters — drag a tile onto one, or tap it</h4>
+      <h4>Swapping and stacking — with no word on the go, drag a tile onto a letter</h4>
       <ul>
-        <li>Keep going: each letter after the first must land in a word one of the others already touches, so a turn is one reach across the board, not errands in three places.</li>
+        <li>Nothing being spelled? Then a tile dropped on a letter starts a raid on the board instead. Keep going: each letter after the first must land in a word one of the others already touches, so a turn is one reach, not errands in three places.</li>
         <li>Every word you touch must still be real. Either way it takes your turn, and you choose how it settles:</li>
         <li><b>⇄ Swap</b> — you keep every letter you prise off, and score nothing.</li>
         <li><b>▦ Stack</b> — the words you have rewritten pay you, and the letters you wrote over go into the bag for somebody else. Premiums are long spent, and a word still pays you only once a day.</li>
@@ -200,11 +222,11 @@
       <ul>
         <li>A 448×448 loop. Drag to pan, pinch or <b>＋ －</b> to zoom, <b>⌖</b> for the last word — which always wears a halo. Arrow keys move a cursor.</li>
         <li><b>👤</b> sign in and your games follow you to any device; <b>🔔</b> tells you when it's your turn. <b>🎲</b> lists your games, ● for the ones waiting on you.</li>
-        <li>Whoever started the game is <b>admin 👑</b> and can remove players or hand the crown on. Setup folds away under <i>Players &amp; setup</i> once play starts.</li>
+        <li>Whoever started the game is <b>admin 👑</b> and can remove players or hand the crown on. Setup folds away under <i>⚙ table rules</i> once play starts.</li>
       </ul>
     </details>
 
-    <div id="status"></div>
+    <div id="status" role="status" aria-live="polite"></div>
   </aside>
 </main>
 <script type="module" src="./app.js"></script>

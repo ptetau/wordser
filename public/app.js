@@ -231,6 +231,17 @@ function wordHalo(colour) {
   return sprite;
 }
 
+// Today's island, worked out once per change rather than once per frame.
+// A placement always adds a cell, a new day moves the anchor, and nothing
+// else can alter which letters are joined to which.
+let islandMemo = { sig: null, keys: new Set() };
+function islandKeys() {
+  const root = game.islandCell ?? game.startCell;
+  const sig = `${game.day}:${game.board.cells.size}:${root.x},${root.y}`;
+  if (islandMemo.sig !== sig) islandMemo = { sig, keys: game.island() };
+  return islandMemo.keys;
+}
+
 function render() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
@@ -353,7 +364,12 @@ function render() {
 
     const tile = game.board.get(x, y);
     if (tile) {
+      // Letters on an older island are out of bounds until somebody bridges
+      // out to them, and the board says so by letting them fade into it.
+      const off = !islandKeys().has(Board.key(x, y));
+      if (off) ctx.globalAlpha = 0.42;
       drawTile(x, y, Board.effective(tile), { blank: !!tile.isBlank });
+      if (off) ctx.globalAlpha = 1;
     } else {
       const fruit = game.fruits.get(Board.key(x, y));
       if (fruit) {
@@ -482,17 +498,17 @@ function nextCell() {
 const pendingAt = (x, y) => placement?.entries.find((e) => e.x === x && e.y === y);
 
 /**
- * Where a letter actually lands from the cursor: the cursor's own cell, or
- * the first free one beyond whatever is already sitting on the line, since
- * spelling runs straight across those for free.
+ * Where a letter actually lands from the cursor. The cursor walks the line
+ * a cell at a time and stops at the first one it can use: empty ground, a
+ * letter that already says what you are typing (which plays for free), a
+ * wildcard to redefine, or somebody else's letter to write over. Only your
+ * own pending letters are stepped past.
  */
-function landingCell() {
+function landingCell(letter = null) {
   const [dx, dy] = DIRS[placement.dir];
   let { x, y } = nextCell();
   for (let guard = 0; guard < 64; guard++) {
-    const board = game.board.get(x, y);
-    if (!board || (board.isBlank && !pendingAt(x, y))) break; // a blank can be redefined
-    if (!board) break;
+    if (!pendingAt(x, y)) break;
     x += dx;
     y += dy;
   }
@@ -507,14 +523,32 @@ function moveCursor(x, y) {
 }
 
 // ------------------------------------------------------------------- panels
+
+// The players list is rebuilt from nothing, so it must only be rebuilt when
+// it would actually differ: a list that redraws under the pointer eats the
+// click, and one that redraws under the keyboard eats the focus. The idle
+// clocks tick every twenty seconds, which is exactly often enough for both.
+let playersDrawn = null;
 function renderPlayers() {
   const box = $('players');
-  box.innerHTML = '';
   if (!game.players.length) {
-    box.innerHTML = '<div class="muted">No players yet.</div>';
+    if (playersDrawn !== 'empty') {
+      box.innerHTML = '<div class="muted">No players yet.</div>';
+      playersDrawn = 'empty';
+    }
     return;
   }
   const me = online() ? session.playerId : currentPlayer;
+  const sig = JSON.stringify([
+    online(), me, currentPlayer, game.mode, game.turnId, Boolean(game.over), game.adminId,
+    game.players.map((p) => [
+      p.id, p.name, p.score, p.stars, p.played, p.total, p.isCpu, Boolean(p.away),
+      game.isTheirTurn(p.id), idleNote(p)?.text ?? '',
+    ]),
+  ]);
+  if (sig === playersDrawn) return;
+  playersDrawn = sig;
+  box.innerHTML = '';
   // Online the admin's tools are the admin's; round one screen they belong
   // to whoever is holding it, like every other table setting.
   const iAmAdmin = online() ? game.isAdmin(me) : true;
@@ -532,7 +566,7 @@ function renderPlayers() {
     // Where they stand goes on a second line under the name: a name, a tag,
     // a clock, stars, a score and two buttons will not fit across 330px.
     const meta = p.away
-      ? '⏭ busy — turns pass themselves'
+      ? '💤 busy — turns pass themselves'
       : theirTurn
         ? idle ? `⏳ ${esc(idle.text)} on this turn` : 'to play'
         : `waiting${idle ? ` · ${esc(idle.text)}` : ''}`;
@@ -541,18 +575,28 @@ function renderPlayers() {
       `${p.stars} day${p.stars === 1 ? '' : 's'} won`,
       avg == null ? 'no days finished yet' : `${avg} a day on average over ${p.played}`,
     ].join(' · ');
+    // Round one screen the name is how you take the seat, so it is a real
+    // button — reachable by tab, and never the whole row, which now carries
+    // buttons of its own.
+    const seat = online() ? 'span' : 'button';
     div.innerHTML = `
-      <span class="who" title="${esc(p.name)} — ${esc(record)}${idle ? `. ${esc(idle.why)}` : ''}">
+      <${seat} class="who"${online() ? '' : ' type="button"'}
+        title="${esc(p.name)} — ${esc(record)}${idle ? `. ${esc(idle.why)}` : ''}">
         <span class="name">${esc(p.name)}${crown}${you}</span>
         <span class="meta${theirTurn ? ' now' : ''}">${meta}</span>
-      </span>
+      </${seat}>
       ${p.stars ? `<span class="stars">★${p.stars > 1 ? p.stars : ''}</span>` : ''}
       <span class="score">${p.score}</span>`;
     if (!online()) {
-      div.onclick = () => {
+      const take = () => {
         currentPlayer = p.id;
         cancelModes();
         refresh();
+      };
+      div.querySelector('.who').onclick = take;
+      div.onclick = (e) => {
+        if (e.target.closest('button')) return; // a control, not the seat
+        take();
       };
     }
     // The skip belongs to whoever holds the turn — including the admin's own
@@ -620,6 +664,30 @@ function adminTools(p, me) {
     tools.appendChild(skip);
   }
   if (p.id === me) return tools; // nothing else applies to your own seat
+  // A seat that has gone quiet for a day can have its turns passed for it,
+  // so four people aren't held up by one. Never the admin's to keep: the
+  // player takes them back with a tick, or simply by playing.
+  if (!p.isCpu && game.players.length > 1 && game.mode === 'turns' && !game.over) {
+    const busy = document.createElement('button');
+    busy.className = 'mini' + (p.away ? ' on' : '');
+    busy.textContent = '💤';
+    busy.setAttribute('aria-pressed', String(Boolean(p.away)));
+    busy.title = p.away
+      ? `${p.name}'s turns are passing themselves — put them back in the game`
+      : `pass ${p.name}'s turns until they come back`;
+    busy.onclick = (e) => {
+      e.stopPropagation();
+      if (!p.away && !confirm(
+        `Pass ${p.name}'s turns until they come back? They can take them back whenever they like.`,
+      )) return;
+      doMove({ type: 'away', targetId: p.id, away: !p.away }, (r) =>
+        r.away
+          ? `${p.name}'s turns will pass themselves 💤`
+          : `${p.name} is back in the game 👋`,
+      );
+    };
+    tools.appendChild(busy);
+  }
   if (!p.isCpu) {
     const crown = document.createElement('button');
     crown.className = 'mini';
@@ -806,12 +874,8 @@ function renderActions() {
   const box = $('cell-actions');
   if (game.over) {
     box.innerHTML = '<span class="muted">The game is finished — the final table is above.</span>';
-    $('end-day').hidden = true;
     return;
   }
-  // No business on screen mid-move, and never one careless tap from a reset.
-  $('end-day').hidden =
-    online() || !game.players.length || Boolean(placement || swapping || exchanging || pickingBlank);
 
   if (pickingBlank) {
     box.innerHTML = '<b>Blank tile:</b> play it as which letter? <button id="cancel-pick" class="mini">✕</button>';
@@ -967,8 +1031,12 @@ function renderActions() {
         ? ` · <span class="preview-ok">${preview.points} pts${preview.fruit ? ' 🍒' : ''}</span>`
         : ` · <span class="preview-bad">${esc(preview.message)}</span>`;
     const started = placement.entries.length > 0;
+    const overs = placement.entries.filter((e) => e.over).length;
+    const wrote = overs
+      ? ` · <span class="muted">over ${overs} letter${overs === 1 ? '' : 's'}</span>`
+      : '';
     const heading =
-      `<b>Placing:</b> ${word || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}`;
+      `<b>Placing:</b> ${word || `<span class="muted">tap rack tiles or type — ✓ plays it</span>`}${wrote}`;
     // Cancel sits at the far end from play: they are 6px apart on a phone.
     box.innerHTML = `${heading}${note}
       <div class="place-controls">
@@ -1124,23 +1192,20 @@ function foldSetupWhenPlaying() {
   }
 }
 
-function renderOnline() {
-  const stat = $('online-status');
-  $('setup-section').hidden = online() || pendingJoinId !== null;
-  $('join-controls').hidden = !(pendingJoinId !== null && !online());
-  $('online-controls').hidden = online() || pendingJoinId !== null;
-  $('online-name').hidden = online();
-  $('cpu-section').hidden = pendingJoinId !== null;
+/**
+ * The ⚙ menu: what this table plays by. The admin's switches are the
+ * admin's, "I'm busy" is nobody's but your own, and gliding the camera is a
+ * preference of this browser's rather than of the game's — but they are all
+ * answers to "how does this table work", so they live in one place.
+ */
+function renderTableRules() {
   $('fly-camera').checked = flyEnabled;
-  // Only the admin sets the table's rules, so only they see the switch.
   const me = online() ? session.playerId : currentPlayer;
   // Online these belong to the admin; round one screen, whoever is holding
   // it speaks for the table.
   const runsTable = !online() || game.isAdmin(me);
   $('mode-row').hidden = !(game.players.length > 1 && runsTable);
   $('goal-row').hidden = !runsTable;
-  // Being away is nobody's business but your own, so this row is not the
-  // admin's to gate — but it only means anything at a table with turns.
   const meP = game.players[me];
   $('away-row').hidden = !(meP && !meP.isCpu && game.players.length > 1 && game.mode === 'turns');
   $('away-me').checked = Boolean(meP?.away);
@@ -1148,6 +1213,21 @@ function renderOnline() {
   if (document.activeElement !== goalBox) goalBox.value = game.goal ?? '';
   $('restart-game').hidden = !(runsTable && (!game.board.isEmpty() || game.over));
   $('mode-turns').checked = game.mode === 'turns';
+  // It used to hide itself mid-move, back when it sat in the open panel one
+  // stray tap from a reset. Behind a menu you had to open, that is just a
+  // button that isn't there when you go looking for it.
+  $('end-day').hidden = online() || !game.players.length || Boolean(game.over);
+}
+
+function renderOnline() {
+  const stat = $('online-status');
+  $('setup-section').hidden = online() || pendingJoinId !== null;
+  $('join-controls').hidden = !(pendingJoinId !== null && !online());
+  $('online-controls').hidden = online() || pendingJoinId !== null;
+  $('online-name').hidden = online();
+  $('cpu-section').hidden = pendingJoinId !== null;
+  renderTableRules();
+  const me = online() ? session.playerId : currentPlayer;
   // Only when it is the answer: alone at the table, having already played.
   const stuck = game.players.length === 1 && game.lastPlayerId === currentPlayer;
   if (!$('cpu-section').hidden && stuck) glint($('add-cpu'), 'cpu');
@@ -2522,24 +2602,27 @@ function flipDirection() {
 }
 
 /**
- * Spell the next letter of the word being placed. Existing tiles under the
- * cursor that match are reused; mismatched normal tiles are auto-consumed so
- * you can spell straight across them; mismatched wildcards are redefined.
+ * Spell the next letter of the word being placed. A letter already on the
+ * board that says the same thing is reused and costs nothing; a wildcard is
+ * redefined; anything else is written over, which spends a tile and posts
+ * the old letter back to the bag. HU_A_ turns MEN into HUMAN.
  */
 function typeLetter(letter, { preferBlank = false, silent = false, at = null } = {}) {
   const p = game.players[currentPlayer];
   if (!p) return false;
-  const cell = at ?? landingCell();
+  const cell = at ?? landingCell(letter);
   const sitting = game.board.get(cell.x, cell.y);
-
-  // A wildcard already on the board can be told to stand for this letter;
-  // anything else there is somebody's word, and the swap move is for that.
-  if (sitting) {
-    if (!sitting.isBlank) {
-      if (!silent) status('that cell is taken — drag a tile onto it to write over it', 'error');
-      return false;
-    }
+  const clearCell = () => {
     placement.entries = placement.entries.filter((e) => !(e.x === cell.x && e.y === cell.y));
+  };
+
+  if (sitting && !sitting.isBlank && Board.effective(sitting) === letter) {
+    // Already down, and already right: the word takes it as it stands.
+    clearCell();
+    placement.entries.push({ ...cell, letter, typed: letter, existing: true });
+  } else if (sitting?.isBlank && !pendingAt(cell.x, cell.y)) {
+    // A wildcard can simply be told to stand for this letter.
+    clearCell();
     placement.entries.push({ ...cell, letter, typed: letter, existing: true, redefine: letter });
   } else {
     // What is left in hand, once the letters already out on the board are
@@ -2551,21 +2634,23 @@ function typeLetter(letter, { preferBlank = false, silent = false, at = null } =
       if (i !== -1) avail.splice(i, 1);
     }
     // Dropping onto a cell you have already used replaces what was there.
-    const over = pendingAt(cell.x, cell.y);
-    if (over && !over.existing) avail.push(over.fromBlank ? BLANK : over.letter);
+    const already = pendingAt(cell.x, cell.y);
+    if (already && !already.existing) avail.push(already.fromBlank ? BLANK : already.letter);
+    // Writing over somebody's letter: the old one is noted for the panel.
+    const over = sitting ? Board.effective(sitting) : null;
 
     let entry = null;
     if (!preferBlank && avail.includes(letter)) {
-      entry = { ...cell, letter, typed: letter, existing: false };
+      entry = { ...cell, letter, typed: letter, existing: false, over };
     } else if (avail.includes(BLANK)) {
-      entry = { ...cell, letter, typed: letter, existing: false, fromBlank: true };
+      entry = { ...cell, letter, typed: letter, existing: false, fromBlank: true, over };
     } else if (avail.includes(letter)) {
-      entry = { ...cell, letter, typed: letter, existing: false };
+      entry = { ...cell, letter, typed: letter, existing: false, over };
     } else {
       if (!silent) status(`no "${letter.toUpperCase()}" (or blank) left in your rack`, 'error');
       return false;
     }
-    if (over) placement.entries = placement.entries.filter((e) => e !== over);
+    if (already) placement.entries = placement.entries.filter((e) => e !== already);
     placement.entries.push(entry);
   }
 
@@ -2736,14 +2821,10 @@ function pickOverwrite(letter, cell) {
 function dropOnBoard(letter, cell) {
   if (!requirePlayer()) return;
   const sitting = game.board.get(cell.x, cell.y);
-  // Dropped on somebody's letter, it writes over it — which is a swap or a
-  // stack, decided when you commit. Mid-word a wildcard already down is a
-  // different thing: the word being spelled redefines it in passing.
-  if (sitting && !(placement && sitting.isBlank)) {
-    if (placement?.entries.length) {
-      status('that cell is taken — finish or cancel the word first', 'error');
-      return;
-    }
+  // Mid-word, a tile dropped on a letter joins the word and writes over it.
+  // With no word on the go it starts a swap or a stack instead — the same
+  // gesture, read by what you were already doing.
+  if (sitting && !placement) {
     pickOverwrite(letter, cell);
     return;
   }
@@ -2859,14 +2940,16 @@ rackBox.addEventListener('pointercancel', endRackDrag);
 
 // -------------------------------------------------------------- the menubar
 //
-// Two things belong to the player rather than to the table: their account
-// and the games they are in. They open as popovers from the masthead, so
-// they cost nothing until asked for and never crowd the game panel.
+// Three things sit above the game rather than inside it: the table's rules,
+// the games you are in, and your account. They are all the same thing — a
+// button in the masthead that opens one labelled panel — so they are built,
+// opened, closed and keyboarded identically, and only one is ever open.
 
-const MENUS = { account: 'account-menu', games: 'games-menu' };
+const MENUS = { table: 'table-menu', account: 'account-menu', games: 'games-menu' };
 let openMenu = null;
 
 function showMenu(which) {
+  const from = openMenu;
   openMenu = which;
   $('menu-layer').hidden = which === null;
   for (const [name, id] of Object.entries(MENUS)) {
@@ -2875,6 +2958,16 @@ function showMenu(which) {
   }
   if (which === 'games') refreshGames();
   if (which === 'account') renderAccount();
+  if (which === 'table') renderTableRules();
+  if (which) {
+    // Opening moves the keyboard onto the panel itself, so its name is read
+    // out and Tab walks its contents in order rather than starting halfway
+    // through them. Closing hands the keyboard back to the button that
+    // opened it, so Tab never lands in dead space.
+    $(MENUS[which]).focus({ preventScroll: true });
+  } else if (from) {
+    $(`${from}-btn`)?.focus({ preventScroll: true });
+  }
 }
 
 const toggleMenu = (which) => showMenu(openMenu === which ? null : which);
@@ -2882,11 +2975,15 @@ const toggleMenu = (which) => showMenu(openMenu === which ? null : which);
 /** A table you can only be told about if the game knows who you are. */
 const waitingOnYou = (g) => Boolean(g.yourTurn) && (g.players?.length ?? 0) > 1;
 
+$('table-btn').addEventListener('click', () => toggleMenu('table'));
 $('account-btn').addEventListener('click', () => {
   markUsed('account');
   toggleMenu('account');
 });
 $('games-btn').addEventListener('click', () => toggleMenu('games'));
+for (const btn of document.querySelectorAll('.menu-close')) {
+  btn.addEventListener('click', () => showMenu(null));
+}
 
 // Click away or press Esc to close, the way every other menu behaves.
 document.addEventListener('pointerdown', (e) => {
@@ -2895,10 +2992,7 @@ document.addEventListener('pointerdown', (e) => {
   showMenu(null);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && openMenu) {
-    showMenu(null);
-    $(`${openMenu}-btn`)?.focus();
-  }
+  if (e.key === 'Escape' && openMenu) showMenu(null);
 }, true);
 
 // ------------------------------------------------------------------ account
@@ -3145,7 +3239,7 @@ $('away-me').addEventListener('change', (e) => {
   doMove({ type: 'away', away }, (r) =>
     r.away
       ? others > 2
-        ? "you're marked busy — your turns will pass themselves ⏭"
+        ? "you're marked busy — your turns will pass themselves 💤"
         : "you're marked busy — with only one other player, they will simply carry on"
       : 'welcome back — your turns are yours again 👋',
   );

@@ -34,6 +34,12 @@ export const DAY_END_VOTE_MS = 2 * 60 * 1000;
 export const IDLE_SKIP_MS = 8 * 60 * 60 * 1000;
 /** How far the ★ jumps when the day's bag runs dry. */
 export const STAR_JUMP = 20;
+/**
+ * How far a new day's ★ may sit from the words already down. Bridging back
+ * to yesterday's island is meant to be a project, not an expedition: a
+ * quarter of the day's hundred tiles should be enough to span the gap.
+ */
+export const BRIDGE_REACH = 25;
 
 // The first word of a game must cover the start cell, which always sits on
 // a double-word star of the premium tiling. It begins at the origin and
@@ -75,6 +81,8 @@ const GRAPE_POINTS = 10;
 // Scoring a word with nothing "changed": no cell of it is fresh, so no
 // premium can pay. A stack writes over squares that were mined long ago.
 const EMPTY_KEYS = new Set();
+// Letters are joined into an island the way words are read: edge to edge.
+const ISLAND_STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 /**
  * Whose move is it? Deliberately written against the plain fields rather
@@ -145,6 +153,9 @@ export class Game {
     this.fruitBag = new Bag(rng);
     this.lastMove = null; // { playerId, keys } of the most recent board change
     this.startCell = { ...START_CELL };
+    // Where today's island is rooted. The same cell as the ★ at dawn, but
+    // the ★ wanders when the bag runs dry and the island must not.
+    this.islandCell = { ...START_CELL };
     this.#seedFruits();
     this.players = [];
     this.adminId = null; // the seat that may remove players and pass this on
@@ -238,6 +249,7 @@ export class Game {
     this.over = null; // the goal itself stands: play the same match again
     this.dateKey = this.#dateKey();
     this.startCell = { ...START_CELL };
+    this.islandCell = { ...START_CELL };
     for (const p of this.players) {
       p.score = 0;
       p.stars = 0;
@@ -558,23 +570,41 @@ export class Game {
   /**
    * "Don't wait for me." A player who knows they are busy can have their
    * turns passed the moment they arrive, so a game of four doesn't stall on
-   * one of them all afternoon. It is theirs to set and theirs to clear, and
-   * playing anything at all clears it.
+   * one of them all afternoon. Playing anything at all clears it.
+   *
+   * The admin may also set it on somebody else — the answer to a seat that
+   * has gone quiet for a day and is holding four people up. It is never the
+   * admin's to keep, though: the player can clear it whenever they like,
+   * and their next move clears it for them.
+   *
+   * @param {object} m
+   * @param {number} m.playerId who is asking
+   * @param {number} [m.targetId] whose turns to pass (the admin's privilege)
+   * @param {boolean} m.away
    */
-  setAway({ playerId, away }) {
+  setAway({ playerId, away, targetId }) {
     this.#maybeRollover();
-    const player = this.player(playerId);
+    const asker = this.player(playerId);
+    const player = targetId === undefined || targetId === null
+      ? asker
+      : this.player(targetId);
+    if (player.id !== asker.id) this.#assertAdmin(playerId);
     if (player.isCpu) fail('a robot is never away');
     const next = Boolean(away);
-    if (player.away === next) return { away: next };
+    if (player.away === next) return { away: next, playerId: player.id };
     player.away = next;
+    const byAdmin = player.id !== asker.id;
     this.log.push(
       next
-        ? `${player.name} is busy — their turns will pass themselves ⏭`
-        : `${player.name} is back at the table 👋`,
+        ? byAdmin
+          ? `${asker.name} set ${player.name}'s turns to pass themselves ⏭`
+          : `${player.name} is busy — their turns will pass themselves ⏭`
+        : byAdmin
+          ? `${asker.name} put ${player.name} back in the game 👋`
+          : `${player.name} is back at the table 👋`,
     );
     if (next) this.#resolveTurn();
-    return { away: next };
+    return { away: next, playerId: player.id, byAdmin };
   }
 
   /**
@@ -689,6 +719,8 @@ export class Game {
       this.#refill(p);
     }
     this.startCell = this.#nextStartCell();
+    // A new day, a new island — rooted where the ★ has just landed.
+    this.islandCell = { ...this.startCell };
     // Yesterday's leftovers are scattered wherever yesterday's play went;
     // lay out a fresh crop within reach of today's.
     this.fruits.clear();
@@ -707,9 +739,13 @@ export class Game {
 
   /**
    * Where tomorrow starts: the nearest double-word star to today's play
-   * whose neighbourhood is all but empty. A new day should open on clean
-   * ground within walking distance of the words already down — not on top of
-   * them, and not in a wilderness nobody will find.
+   * whose neighbourhood is all but empty, and which is still within
+   * bridging distance of the words already down.
+   *
+   * Both halves matter now that islands do. Land on top of yesterday and
+   * there is no new island; land a hundred cells away and nobody will ever
+   * span the gap. BRIDGE_REACH is the promise: a quarter of the day's bag
+   * of letters, laid end to end, reaches from the new ★ to the old words.
    */
   #nextStartCell() {
     const cells = [...this.board.cells.keys()].map((k) => k.split(',').map(Number));
@@ -726,6 +762,17 @@ export class Game {
         }
       }
       return 1 - taken / total;
+    };
+    // How far the nearest letter is: the bridge somebody will have to build.
+    const reach = (sx, sy) => {
+      let best = Infinity;
+      for (const [x, y] of cells) {
+        const dx = Math.abs(x - sx);
+        const dy = Math.abs(y - sy);
+        const d = Math.max(Math.min(dx, WORLD - dx), Math.min(dy, WORLD - dy));
+        if (d < best) best = d;
+      }
+      return best;
     };
     // Stars sit on the premium lattice, so walk it outward from the play.
     const cx = Math.round(from[0] / PERIOD) * PERIOD;
@@ -746,9 +793,14 @@ export class Game {
       }
       for (const [sx, sy] of ring) {
         if (sx === this.startCell.x && sy === this.startCell.y) continue;
+        if (this.board.get(sx, sy)) continue; // the ★ itself must be clear
         const clear = quiet(sx, sy);
-        if (clear >= QUIET_ENOUGH) return { x: sx, y: sy };
-        if (!fallback || clear > fallback.clear) fallback = { x: sx, y: sy, clear };
+        const near = reach(sx, sy);
+        if (clear >= QUIET_ENOUGH && near <= BRIDGE_REACH) return { x: sx, y: sy };
+        // Failing that, the emptiest patch still in reach — and if nothing
+        // is in reach, the closest thing to it.
+        const score = clear - Math.max(0, near - BRIDGE_REACH) / WORLD;
+        if (!fallback || score > fallback.score) fallback = { x: sx, y: sy, score };
       }
     }
     return fallback ? { x: fallback.x, y: fallback.y } : { ...this.startCell };
@@ -908,6 +960,36 @@ export class Game {
     this.log.push(`the bag is empty — the ★ moved somewhere new`);
   }
 
+  /**
+   * Today's island: every letter joined, edge to edge, to the cell the day
+   * started on. Yesterday's words are their own islands out in the dark,
+   * and play may not simply appear on one — the way to reach an old island
+   * is to build a bridge of words out to it, at which point the two are one
+   * island and all of it is fair game again.
+   *
+   * Returns the set of cell keys, empty when nothing has been played on
+   * today's ★ yet — in which case the first word of the day must cover it.
+   */
+  island() {
+    const root = this.islandCell ?? this.startCell;
+    const start = Board.key(root.x, root.y);
+    if (!this.board.cells.has(start)) return new Set();
+    const seen = new Set([start]);
+    const queue = [[wrapCoord(root.x), wrapCoord(root.y)]];
+    while (queue.length) {
+      const [x, y] = queue.pop();
+      for (const [dx, dy] of ISLAND_STEPS) {
+        const nx = wrapCoord(x + dx);
+        const ny = wrapCoord(y + dy);
+        const k = Board.key(nx, ny);
+        if (seen.has(k) || !this.board.cells.has(k)) continue;
+        seen.add(k);
+        queue.push([nx, ny]);
+      }
+    }
+    return seen;
+  }
+
   /** Smallest toroidal chebyshev distance from (x, y) to any current fruit. */
   #fruitDistance(x, y) {
     let best = Infinity;
@@ -1017,6 +1099,10 @@ export class Game {
           () => this.fruitBag.draw(),
         ).filter(Boolean);
         if (offered.length) {
+          // One offer at a time. A word long enough to cover two cherries
+          // would otherwise drop the first seven letters on the floor, so
+          // the second helping joins the same pile to choose from.
+          if (Array.isArray(player.pendingChoice)) offered.unshift(...player.pendingChoice);
           player.pendingChoice = offered;
           this.log.push(`${player.name} ate a cherry ${FRUIT_EMOJI.cherry}: choose one of ${offered.length} letters`);
         } else {
@@ -1319,8 +1405,9 @@ export class Game {
     this.#assertCanPlay(player);
 
     if (!Array.isArray(tiles) || tiles.length === 0) fail('no tiles to place');
-    const boardWasEmpty = this.board.isEmpty();
     const held = player.rack.length;
+    // Today's island, read before anything moves: what the play has to touch.
+    const island = this.island();
 
     // Rack availability.
     const rackCopy = [...player.rack];
@@ -1332,14 +1419,23 @@ export class Game {
       }
     }
 
-    // Distinct, empty target cells on one line.
+    // Distinct target cells on one line. A cell that already holds a letter
+    // is stacked on: HU_A_ turns MEN into HUMAN, the M and N reused as they
+    // stand, the A written over the E. What is written over goes into the
+    // bag, exactly as it does for a stack of its own.
     const keys = new Set(tiles.map((t) => Board.key(t.x, t.y)));
     if (keys.size !== tiles.length) fail('duplicate target cell');
+    const over = [];
     for (const t of tiles) {
-      if (this.board.get(t.x, t.y)) {
-        fail(`cell (${t.x},${t.y}) is taken — swap that letter instead`);
+      const sitting = this.board.get(t.x, t.y);
+      if (!sitting) continue;
+      if (Board.effective(sitting) === t.letter && !t.fromBlank) {
+        fail(`"${t.letter.toUpperCase()}" is already there — leave it be and it plays for free`);
       }
+      over.push({ x: t.x, y: t.y, tile: sitting });
     }
+    const fresh = tiles.filter((t) => !this.board.get(t.x, t.y));
+    if (!fresh.length) fail('a word needs at least one letter on empty ground');
     const dir = tiles.every((t) => t.y === tiles[0].y)
       ? 'h'
       : tiles.every((t) => t.x === tiles[0].x)
@@ -1400,16 +1496,22 @@ export class Game {
           fail('every placed tile must be part of a word of two or more letters');
         }
       }
-      // The first word of the game must cover the start cell.
-      if (boardWasEmpty && !formedCellKeys.has(Board.key(this.startCell.x, this.startCell.y))) {
-        fail('the first word must cover the start cell ★');
-      }
-      // ...and the play must connect to the existing board (unless it's empty).
-      if (!boardWasEmpty) {
+      // Nothing on today's ★ yet: the island has to start there.
+      if (!island.size) {
+        const root = this.islandCell ?? this.startCell;
+        if (!formedCellKeys.has(Board.key(root.x, root.y))) {
+          fail('the first word of the day must cover the start cell ★');
+        }
+      } else {
+        // ...otherwise the play has to touch today's island. Yesterday's
+        // words are out there, but out of bounds until a bridge reaches
+        // them — at which point they are today's island too.
         const connects = formed.some((w) =>
-          w.cells.some((c) => !keys.has(Board.key(c.x, c.y))),
+          w.cells.some((c) => island.has(Board.key(c.x, c.y))),
         );
-        if (!connects) fail('the word must connect to tiles already on the board');
+        if (!connects) {
+          fail('too far from today\'s ★ — build out from the island you are on');
+        }
       }
 
       for (const w of formed) {
@@ -1425,7 +1527,9 @@ export class Game {
         this.#checkWordsThrough(r.x, r.y);
       }
 
-      const changed = new Set(tiles.map((t) => Board.key(t.x, t.y)));
+      // Only ground broken this move can carry a premium: a cell written
+      // over was mined by the letter that first landed on it.
+      const changed = new Set(fresh.map((t) => Board.key(t.x, t.y)));
       let points = formed.reduce((acc, w) => acc + this.#payFor(player, w, changed), 0);
       const repeats = formed.filter((w) => this.#alreadyScored(player, w.word)).map((w) => w.word);
       this.#noteScored(player, formed.map((w) => w.word));
@@ -1441,14 +1545,19 @@ export class Game {
       if (tiles.length >= RACK_TARGET) points += BINGO_BONUS;
 
       player.rack = rackCopy;
+      // Whatever the word was written over goes back into the day's bag.
+      const gave = over.map((o) => (o.tile.isBlank ? BLANK : o.tile.letter));
+      this.bag.put(...gave);
       const main = formed.find((w) => w.dir === dir) ?? formed[0];
-      this.lastMove = { playerId, keys: [...changed] };
+      const played = [...keys];
+      this.lastMove = { playerId, keys: played };
       const note = repeats.length
         ? ` (${repeats.map((w) => w.toUpperCase()).join(', ')} already scored today)`
         : '';
+      const wrote = gave.length ? ` over ${gave.length} letter${gave.length === 1 ? '' : 's'}` : '';
       const cleared = emptied ? ' — the whole tray, doubled! 🎉' : '';
       const fruits = this.#commit(
-        player, points, `played "${main.word.toUpperCase()}"${note}${cleared}`, [...changed],
+        player, points, `played "${main.word.toUpperCase()}"${wrote}${note}${cleared}`, played,
       );
       // One word laid down, however many it happens to cross.
       this.wordsPlayed += 1;
@@ -1456,11 +1565,13 @@ export class Game {
         ? this.#finish(`word ${this.goal} of ${this.goal}`)
         : null;
       return {
-        points, words: formed.map((w) => w.word), repeats, emptied, fruits,
+        points, words: formed.map((w) => w.word), repeats, emptied, fruits, gave,
         wordsPlayed: this.wordsPlayed, wordsLeft: this.wordsLeft, finished,
       };
     } catch (err) {
       for (const t of placed) this.board.remove(t.x, t.y);
+      // Anything the word was written over goes back exactly as it was.
+      for (const o of over) this.board.set(o.x, o.y, o.tile);
       for (const r of redefined) {
         const tile = this.board.get(r.x, r.y);
         if (tile?.isBlank) tile.as = r.was;
@@ -1520,10 +1631,17 @@ export class Game {
     const keys = new Set(plays.map((sw) => Board.key(sw.x, sw.y)));
     if (keys.size !== plays.length) fail(`you can only ${verb} a cell once`);
 
+    // Only today's island may be written on: an older day's words are out
+    // of bounds until somebody bridges out to them.
+    const island = this.island();
+
     const rackCopy = [...player.rack];
     const olds = [];
     for (const sw of plays) {
       const old = this.board.get(sw.x, sw.y) ?? fail(`no tile at (${sw.x},${sw.y}) to ${verb}`);
+      if (!island.has(Board.key(sw.x, sw.y))) {
+        fail('that word is on an older island — bridge out to it before you touch it');
+      }
       if (!isLetter(sw.letter)) fail(`invalid letter: ${sw.letter}`);
       if (Board.effective(old) === sw.letter && !sw.fromBlank) {
         fail(`${doing} "${sw.letter.toUpperCase()}" for itself changes nothing`);
@@ -1743,6 +1861,7 @@ export class Game {
       }),
       lastMove: this.lastMove ? { playerId: this.lastMove.playerId, keys: [...this.lastMove.keys] } : null,
       startCell: { ...this.startCell },
+      islandCell: { ...(this.islandCell ?? this.startCell) },
       passed: [...this.passed],
       spent: [...this.spent],
       goal: this.goal,
@@ -1783,6 +1902,21 @@ export class Game {
     for (const { x, y, type } of data.fruits ?? []) game.fruits.set(Board.key(x, y), type);
     game.lastMove = data.lastMove ?? null;
     game.startCell = data.startCell ? { ...data.startCell } : { ...START_CELL };
+    // Saves from before islands existed root today's on the ★ — unless the
+    // ★ has already wandered off onto empty ground, in which case rooting
+    // it there would strand a game in progress. Those root on the last move
+    // instead, which is exactly the island everyone is playing on.
+    if (data.islandCell) {
+      game.islandCell = { ...data.islandCell };
+    } else {
+      game.islandCell = { ...game.startCell };
+      const onStar = game.board.get(game.startCell.x, game.startCell.y);
+      const anchor = game.lastMove?.keys?.[0];
+      if (!onStar && anchor) {
+        const [x, y] = anchor.split(',').map(Number);
+        if (game.board.get(x, y)) game.islandCell = { x, y };
+      }
+    }
     if (typeof data.bag === 'string') game.bag.pool = [...data.bag];
     // Games saved before the fruit had a bag of their own start with a full
     // one: the letters they had already handed out came from the day's bag,

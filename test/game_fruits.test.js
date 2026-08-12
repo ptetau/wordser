@@ -222,3 +222,13 @@ test('a new day refills both bags', () => {
   const dealt = g.players.reduce((n, p) => n + p.rack.length, 0);
   assert.equal(g.bag.pool.length + dealt, 100);
 });
+
+test('two cherries in one word offer one pile, not two', () => {
+  const g = makeGame(['cats'], { racks: [['c', 'a', 't', 's', 'e', 'e', 'e'], []] });
+  g.fruits.set(Board.key(1, 0), 'cherry');
+  g.fruits.set(Board.key(3, 0), 'cherry');
+  const spare = g.fruitBag.pool.length;
+  g.place({ playerId: 0, tiles: tilesFor('cats', 0, 0) });
+  assert.equal(g.players[0].pendingChoice.length, 14, 'both helpings, none lost');
+  assert.equal(g.fruitBag.pool.length, spare - 14);
+});
