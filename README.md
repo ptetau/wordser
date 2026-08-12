@@ -117,11 +117,15 @@ npm test           # engine + API test suite (node --test, no dependencies)
   twice running. Either way nobody takes two turns in a row — not across a
   day boundary, and not when you're the only player, where the way on is to
   invite a friend or add a CPU.
-- **Skipping idlers.** The admin can skip whoever is holding things up, and
-  a seat that sits on its turn for **eight hours** is passed by
-  automatically. The clock runs from when the turn arrived, not from your
-  last move, so waiting all day for your go never costs you it. CPU seats
-  are never skipped.
+- **Skipping idlers.** Every seat in the players list says how long it has
+  been quiet — the one holding the turn measured from when the turn
+  arrived, everybody else from their last move — so whoever runs the table
+  can see at a glance who is holding it up. That seat carries a **⏭**
+  button: one press and play moves on. A seat that sits on its turn for
+  **eight hours** is passed by automatically anyway; the hover says how long
+  is left before that happens. The clock runs from when the turn arrived,
+  not from your last move, so waiting all day for your go never costs you
+  it. CPU seats are never skipped.
 - **One payday per word.** A word pays a given player once a day. Flipping
   a letter back and forth to re-bank the same word scores nothing, and the
   log says so. The ledger is per player and clears with the new day.

@@ -213,19 +213,24 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 .player.pickable { cursor: pointer; }
 .player.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
 .player.to-play { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.player .tag {
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.4px;
-  color: var(--muted); flex-shrink: 0;
+/* Name on top, where they stand underneath: across 330px a name, a state,
+   an idle clock, stars, a score and two buttons do not fit on one line. */
+.player .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.player .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player .meta {
+  /* Not upper-cased: "3H 15M" is harder to read at a glance than "3h 15m". */
+  font-size: 10px; letter-spacing: 0.6px;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.player .tag.now {
-  color: #22190a; background: var(--accent);
-  padding: 2px 6px; border-radius: 4px; font-weight: 700;
+.player .meta.now { color: var(--accent); font-weight: 600; }
+.player .stars {
+  color: var(--accent); letter-spacing: 1px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
-.player .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.player .stars { color: var(--accent); letter-spacing: 1px; }
 .player .score { font-variant-numeric: tabular-nums; color: var(--good); }
 .admin-tools { display: flex; gap: 4px; flex-shrink: 0; }
-.admin-tools .mini { min-width: 36px; min-height: 36px; padding: 2px 6px; opacity: 0.75; }
+.admin-tools .mini { min-width: 32px; min-height: 34px; padding: 2px 4px; opacity: 0.75; }
 .admin-tools .mini:hover { opacity: 1; }
 
 /* Two rows of slots, six across: the whole 12-tile rack is always in

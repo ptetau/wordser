@@ -1,4 +1,6 @@
-import { Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX, waitingOn } from './engine/game.js';
+import {
+  Game, GameError, FRUIT_EMOJI, START_CELL, RACK_MAX, IDLE_SKIP_MS, waitingOn,
+} from './engine/game.js';
 // Moves that leave your turn where it is. Everything that puts letters on
 // the board — placing, swapping — is a play, and is not among them.
 const NON_TURN_MOVES = new Set([
@@ -512,7 +514,9 @@ function renderPlayers() {
     return;
   }
   const me = online() ? session.playerId : currentPlayer;
-  const iAmAdmin = game.isAdmin(me);
+  // Online the admin's tools are the admin's; round one screen they belong
+  // to whoever is holding it, like every other table setting.
+  const iAmAdmin = online() ? game.isAdmin(me) : true;
   for (const p of game.players) {
     const div = document.createElement('div');
     div.className = 'player';
@@ -522,18 +526,23 @@ function renderPlayers() {
     div.classList.add(theirTurn ? 'to-play' : 'waiting');
     const you = online() && p.id === session.playerId ? ' <small>(you)</small>' : '';
     const crown = game.isAdmin(p.id) ? ' <span title="game admin">👑</span>' : '';
-    const tag = theirTurn
-      ? '<span class="tag now">to play</span>'
-      : '<span class="tag">waiting</span>';
+    const idle = idleNote(p);
+    // Where they stand goes on a second line under the name: a name, a tag,
+    // a clock, stars, a score and two buttons will not fit across 330px.
+    const meta = theirTurn
+      ? idle ? `⏳ ${esc(idle.text)} on this turn` : 'to play'
+      : `waiting${idle ? ` · ${esc(idle.text)}` : ''}`;
     const avg = p.played ? Math.round(p.total / p.played) : null;
     const record = [
       `${p.stars} day${p.stars === 1 ? '' : 's'} won`,
       avg == null ? 'no days finished yet' : `${avg} a day on average over ${p.played}`,
     ].join(' · ');
     div.innerHTML = `
-      <span class="name" title="${esc(p.name)} — ${esc(record)}">${esc(p.name)}${crown}${you}</span>
-      ${tag}
-      <span class="stars">${'★'.repeat(p.stars)}</span>
+      <span class="who" title="${esc(p.name)} — ${esc(record)}${idle ? `. ${esc(idle.why)}` : ''}">
+        <span class="name">${esc(p.name)}${crown}${you}</span>
+        <span class="meta${theirTurn ? ' now' : ''}">${meta}</span>
+      </span>
+      ${p.stars ? `<span class="stars">★${p.stars > 1 ? p.stars : ''}</span>` : ''}
       <span class="score">${p.score}</span>`;
     if (!online()) {
       div.onclick = () => {
@@ -542,15 +551,71 @@ function renderPlayers() {
         refresh();
       };
     }
-    if (iAmAdmin && p.id !== me) div.appendChild(adminTools(p));
+    // The skip belongs to whoever holds the turn — including the admin's own
+    // seat, in a hot-seat game where they are driving for everybody.
+    if (iAmAdmin) {
+      const tools = adminTools(p, me);
+      if (tools.childElementCount) div.appendChild(tools);
+    }
     box.appendChild(div);
   }
 }
 
+/**
+ * How long a seat has been quiet, for whoever is running the table. The one
+ * holding the turn is measured from when it arrived — that is the number
+ * that decides whether they are holding things up — and everybody else from
+ * their last move. Robots and a table of one have nothing to answer for.
+ */
+function idleNote(p) {
+  const me = online() ? session.playerId : currentPlayer;
+  if (!(online() ? game.isAdmin(me) : true)) return null;
+  if (game.players.length < 2 || p.isCpu || game.over) return null;
+  const theirTurn = game.mode === 'turns' && game.turnId === p.id;
+  const since = theirTurn ? (game.turnStartedAt ?? p.lastActedAt) : p.lastActedAt;
+  if (!since) return null;
+  const ms = Date.now() - since;
+  if (ms < 60_000) return null; // a minute is not idling
+  const text = agoText(ms);
+  return {
+    text,
+    why: theirTurn
+      ? `${p.name} has had the turn for ${text} — ${agoText(Math.max(0, IDLE_SKIP_MS - ms))} before it passes automatically`
+      : `${p.name} last played ${text} ago`,
+  };
+}
+
+/** A duration in the roundest words that still say something. */
+function agoText(ms) {
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return mins % 60 ? `${hours}h ${mins % 60}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
+}
+
 /** The admin's per-player controls: hand over the crown, or remove a seat. */
-function adminTools(p) {
+function adminTools(p, me) {
   const tools = document.createElement('span');
   tools.className = 'admin-tools';
+  // Only the seat holding the turn can be skipped, and only in a rotation:
+  // in a free-for-all nobody is in anybody's way.
+  if (game.mode === 'turns' && game.turnId === p.id && !game.over) {
+    const skip = document.createElement('button');
+    skip.className = 'mini';
+    skip.textContent = '⏭';
+    skip.title = `skip ${p.name}'s turn`;
+    skip.onclick = (e) => {
+      e.stopPropagation();
+      if (!confirm(`Skip ${p.name}'s turn? Play moves on to the next seat.`)) return;
+      doMove({ type: 'skip', targetId: p.id }, (r) =>
+        r.dayEnded ? `${r.skipped} was skipped — a new day begins! ★` : `${r.skipped} was skipped ⏭`,
+      );
+    };
+    tools.appendChild(skip);
+  }
+  if (p.id === me) return tools; // nothing else applies to your own seat
   if (!p.isCpu) {
     const crown = document.createElement('button');
     crown.className = 'mini';
@@ -1452,6 +1517,12 @@ async function doMove(move, describe) {
       }
       setTimeout(runCpuTurns, 650);
     }
+    // A skip isn't a turn taken, but it does hand the turn on: round one
+    // screen the device should follow it, and a robot should answer it.
+    if (move.type === 'skip' && !online() && game.turnId != null) {
+      currentPlayer = game.turnId;
+      setTimeout(runCpuTurns, 650);
+    }
     showLastMove();
     refresh();
     return r;
@@ -1650,6 +1721,12 @@ setInterval(() => {
   }
   renderDayVote();
 }, 1000);
+
+// The idle clocks are only interesting because they grow; a slow tick keeps
+// them honest between moves without redrawing the panel every second.
+setInterval(() => {
+  if (game.players.length > 1 && !game.over) renderPlayers();
+}, 20_000);
 
 function askName() {
   // Signed in? Then you have already said who you are.

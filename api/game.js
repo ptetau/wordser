@@ -21,8 +21,10 @@ const MAX_PLAYERS = 16;
 // Moves that leave the turn where it is, so the robots don't get to answer
 // them. Everything that puts letters on the board — placing, swapping — is
 // a play and is not on this list.
+// A skip is not on this list on purpose: it hands the turn on, and if it
+// lands on a robot the robot should answer it.
 const NON_TURN_MOVES = [
-  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode', 'skip',
+  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode',
 ];
 
 let dictionaryPromise;
