@@ -115,9 +115,15 @@ npm test           # engine + API test suite (node --test, no dependencies)
   which comes from a smooth field over the board lattice, so they come in
   regions of several boards rather than changing at every line — the map is
   worth knowing, and worth crossing. Home — the board on the origin, where
-  every new game opens — is always classic. Every layout holds to the same
-  two limits: a triple-word never touches another, and every board pays out
-  at roughly the density of a real one.
+  every new game opens — is always classic. Whatever the layout, three
+  rules hold everywhere: the centre of every board is a double-word star;
+  **no premium ever sits beside another**, across or down (two of them
+  under one letter's work is too cheap, and the real board never does it
+  either); and **no straight play can multiply a word by more than nine**,
+  which is the classic board's own ceiling. The strange layouts get the
+  spacing for nothing by keeping to the even squares — orthogonal
+  neighbours always differ in parity — and the tests check all three over
+  every one of the world's 200,704 cells.
 - **A premium pays once, ever.** The first letter to land on a premium
   square collects it, and the square is plain board from then on — a corner
   triple-word cannot be re-mined by writing over the same cell tomorrow.

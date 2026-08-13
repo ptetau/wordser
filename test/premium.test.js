@@ -152,18 +152,51 @@ test('every board is framed the same way, whatever is inside it', () => {
   }
 });
 
-test('no two triple-words touch, anywhere in the world', () => {
-  // Two side by side would make a nine-times word out of a single play,
-  // which is the classic board's ceiling — and the new layouts have to
-  // keep clear of the rim's own to hold to it.
-  let doubled = 0;
+test('no premium ever sits beside another, anywhere in the world', () => {
+  // Two of them under one letter's work is too cheap. The real scrabble
+  // board never does it, and neither may anything else out there — inside
+  // a board, across the rim between two of them, or over the seam.
+  const touching = [];
   for (let x = 0; x < WORLD; x++) {
     for (let y = 0; y < WORLD; y++) {
-      if (premiumAt(x, y) !== 'TW') continue;
-      if (premiumAt(x + 1, y) === 'TW' || premiumAt(x, y + 1) === 'TW') doubled++;
+      const p = premiumAt(x, y);
+      if (!p) continue;
+      for (const [dx, dy] of [[1, 0], [0, 1]]) {
+        const q = premiumAt(x + dx, y + dy);
+        if (q) touching.push(`${p} at ${x},${y} touches ${q} at ${x + dx},${y + dy}`);
+      }
     }
   }
-  assert.equal(doubled, 0);
+  assert.deepEqual(touching.slice(0, 5), [], `${touching.length} premiums are side by side`);
+});
+
+test('no straight play can multiply a word by more than nine', () => {
+  // The classic board's own ceiling is two triple-words in one line. Every
+  // other layout has to live under it, however it arranges itself — a
+  // board where one play could take 27x would be the only board anybody
+  // ever went to.
+  const MULT = { TW: 3, DW: 2 };
+  const worst = {};
+  for (const [sx, sy] of boards()) {
+    const kind = patternAt(sx, sy);
+    if (worst[kind]) continue; // one board of each kind: the layouts are fixed
+    let most = 1;
+    for (let dx = -8; dx <= 6; dx++) {
+      for (let dy = -8; dy <= 6; dy++) {
+        for (const [ax, ay] of [[1, 0], [0, 1]]) {
+          for (let len = 2; len <= 8; len++) {
+            let m = 1;
+            for (let i = 0; i < len; i++) {
+              m *= MULT[premiumAt(sx + dx + i * ax, sy + dy + i * ay)] ?? 1;
+            }
+            if (m > most) most = m;
+          }
+        }
+      }
+    }
+    worst[kind] = most;
+  }
+  assert.deepEqual(worst, { classic: 9, wave: 9, spiral: 9, bag: 9 });
 });
 
 test('every board pays about as well as a real one', () => {

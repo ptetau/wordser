@@ -20,6 +20,16 @@
 // one every time you cross a line — travelling turns the scenery over
 // slowly, and it is worth knowing where the spirals are. Home (the board on
 // the origin, where every new game opens) is always classic.
+//
+// Whatever the layout, three rules hold everywhere in the world, and the
+// tests hold them to it:
+//
+//   - the centre of every board is a double-word star;
+//   - no premium ever sits beside another, across or down. Two of them
+//     under one letter's work is too cheap, and the real board never does
+//     it either;
+//   - no straight play can multiply a word by more than nine, which is the
+//     classic board's own ceiling.
 const BOARD = 15; // the classic board, in squares...
 export const PERIOD = BOARD - 1; // ...minus the edge it shares with the next
 /** Boards across the world. WORLD / PERIOD, pinned by the tests. */
@@ -135,16 +145,22 @@ export function patternAt(x, y) {
 //
 // Each takes a cell's offset from its board's star and answers what sits
 // there. Two rules bind all of them: the star itself is always a
-// double-word, and a triple-word never touches the rim (|d| >= 6) or
-// another triple-word — two of those side by side would make a nine-times
-// word out of a single play.
+// double-word, and no premium ever sits beside another.
 
 /**
- * Far enough inside the board that a triple-word here cannot end up beside
- * the rim's own — two of them side by side would make a nine-times word
- * out of one play, which is the classic board's ceiling for a reason.
+ * Nothing next to anything. Two premiums side by side pay twice over for
+ * one letter's work, which is too cheap — and the real scrabble board never
+ * does it either, which is why the classic layout needs no help here.
+ *
+ * The layouts below get it for nothing by keeping to the even squares:
+ * orthogonal neighbours always differ in parity, so two of them can never
+ * both be even. PERIOD is even, so an offset's parity is the world cell's
+ * parity — the rule holds between boards and across the seam as much as
+ * inside a board. Staying two cells clear of the rim covers the last case,
+ * the rim being drawn classic and not on any one parity.
  */
-const clearOfRim = (dx, dy) => Math.abs(dx) <= 5 && Math.abs(dy) <= 5;
+const spaced = (dx, dy) =>
+  (dx + dy) % 2 === 0 && Math.abs(dx) <= 5 && Math.abs(dy) <= 5;
 
 function classic(dx, dy) {
   return QUADRANT[`${7 - Math.abs(dx)},${7 - Math.abs(dy)}`] ?? null;
@@ -152,38 +168,47 @@ function classic(dx, dy) {
 
 /**
  * An arm winding out from the star, paying better the further out you
- * follow it. The arm is a constant cell or so wide however far out it gets,
- * so the phase window narrows as the radius grows.
+ * follow it — letters near the middle, word multipliers out at the end.
+ * The arm keeps an even breadth however far out it gets, and the even
+ * squares dot it rather than filling it.
  */
 const SPIRAL_PITCH = 3.6; // cells between one turn of the arm and the next
+const SPIRAL_WIDTH = 1.15; // ...and how broad a band the arm is drawn in
 function spiral(dx, dy) {
   const r = Math.hypot(dx, dy);
   if (r < 0.5) return 'DW'; // the star
-  if (r > 6.2) return null; // clear of the rim
+  if (!spaced(dx, dy)) return null;
   const phase = mod(Math.atan2(dy, dx) / TAU - r / SPIRAL_PITCH, 1);
   const arm = Math.min(phase, 1 - phase);
-  // The arm should be about a cell wide wherever you meet it, and phase
-  // runs both around and outward — so the window that holds it open is the
-  // one that keeps 2·arm/|∇phase| roughly constant.
+  // Phase runs both around the star and outward from it, so the window
+  // that keeps the arm an even breadth however far out you follow it is
+  // the one that scales with the gradient of the two together.
   const gradient = Math.hypot(1 / (TAU * r), 1 / SPIRAL_PITCH);
-  if (arm > 0.6 * gradient) return null;
-  if (r > 5 && clearOfRim(dx, dy) && (dx + dy) % 2 === 0) return 'TW';
-  if (r > 3.4) return 'DW';
-  if (r > 2) return 'TL';
+  if (arm > SPIRAL_WIDTH * gradient) return null;
+  // Letters all the way out, and a word multiplier only every eighth
+  // square: along any line at most one of those falls within a word's
+  // length, so the most a play can pick up is one of them and one of the
+  // rim's triple-words — nine times over, exactly the classic ceiling.
+  const multiplies = (dx + dy) % 8 === 0;
+  if (r > 4.6) return multiplies ? 'TW' : 'TL';
+  if (r > 3.2) return multiplies ? 'DW' : 'TL';
+  if (r > 1.8) return 'TL';
   return 'DL';
 }
 
 /**
  * Ripples: crests of letter bonuses running across the board, bent by a
  * slower swell down the other axis. Nothing but letters and the star — a
- * wave board is where you go to spend a Q.
+ * wave board is where you go to spend a Q. The crests are broad and the
+ * even squares pick every other cell out of them, so a wave reads as a
+ * dotted swell rather than a solid stripe.
  */
 function wave(dx, dy) {
   if (dx === 0 && dy === 0) return 'DW';
-  if (Math.abs(dx) > 6 || Math.abs(dy) > 6) return null;
+  if (!spaced(dx, dy)) return null;
   const crest = Math.sin(dx * 0.86 + Math.sin(dy * 0.52) * 2.3);
-  if (crest < 0.72) return null;
-  if (crest > 0.985) return 'TL';
+  if (crest < -0.3) return null;
+  if (crest > 0.86) return 'TL';
   return 'DL';
 }
 
@@ -197,12 +222,12 @@ function wave(dx, dy) {
  * put three of them under one word and hand out scores no other board
  * could touch; a bag is where a Q pays, not where a word triples.
  */
-const BAG_REACH = 4.3;
+const BAG_REACH = 5.6;
 function bag(dx, dy) {
   const r = Math.hypot(dx, dy);
   if (r < 0.5) return 'DW'; // the star, as everywhere
-  if (r > BAG_REACH) return null;
-  return (dx + dy) % 2 === 0 ? 'TL' : 'DL';
+  if (r > BAG_REACH || !spaced(dx, dy)) return null;
+  return (dx + dy) % 4 === 0 ? 'TL' : 'DL';
 }
 
 const LAYOUTS = { classic, spiral, wave, bag };
