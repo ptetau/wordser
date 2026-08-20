@@ -27,7 +27,11 @@ passphrase; switch turn alerts on) and **🎲 your games** (every table you're
 at, whose turn it is at each, and a badge counting the ones waiting on you).
 Turn on 🔔 *Tell me when it's my turn* and the browser taps you on the
 shoulder when a game is yours to move — including games in other tabs, which
-are polled once a minute in the background.
+are polled once a minute in the background. The open game paces its own
+polling to the table: every three seconds while things are happening, easing
+off toward fifteen as it sits quiet, and snapping back the moment anything
+arrives — your own move, somebody else's, a live day-end vote, a cherry
+waiting on you, or simply returning to the tab, which syncs at once.
 
 A word can be laid straight over letters already down: type **HUMAN** across
 **MEN** and the M and N are reused where they stand while the E is written

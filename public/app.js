@@ -1773,6 +1773,7 @@ async function doMove(move, describe) {
       cancelModes();
       selected = null;
       adoptView(d);
+      pollDelay = POLL_FAST; // your own move wakes the table up
       if (typeof d.result?.points === 'number') startFlourish(game.lastMove?.keys, d.result.points);
       status(describe(d.result), 'good');
     } catch (err) {
@@ -2030,7 +2031,19 @@ async function sync(force = false) {
   polling = true;
   try {
     const d = await session.state(force ? undefined : seq);
-    if (!d.unchanged) adoptView(d);
+    if (d.unchanged) {
+      // Nothing new: the table is quiet, so ask a little less often. The
+      // backoff never outlives the quiet — anything at all resets it.
+      pollDelay = Math.min(POLL_SLOW, Math.round(pollDelay * 1.6));
+    } else {
+      adoptView(d);
+      pollDelay = POLL_FAST; // somebody moved: more may be coming
+    }
+    // Two states demand liveness whatever the backoff says: a day-end vote
+    // has a two-minute clock on it, and a cherry is waiting on your choice.
+    if (game.dayEndVote || game.players[session.playerId]?.pendingChoice) {
+      pollDelay = POLL_FAST;
+    }
   } catch (err) {
     if (err instanceof NetError && err.status === 403) {
       noteRemoved();
@@ -2041,7 +2054,28 @@ async function sync(force = false) {
     polling = false;
   }
 }
-setInterval(() => sync(), 3000);
+
+// The poll paces itself to the table. Three seconds while things are
+// happening; easing off toward fifteen as the game sits quiet, since a
+// game whose turns take hours does not need asking twenty times a minute.
+// Your own moves, an arriving change, or coming back to the tab all snap
+// it back to fast — and returning to the tab syncs at once, so the board
+// is fresh before you have found your rack.
+const POLL_FAST = 3_000;
+const POLL_SLOW = 15_000;
+let pollDelay = POLL_FAST;
+(function pollLoop() {
+  setTimeout(async () => {
+    await sync();
+    pollLoop();
+  }, pollDelay);
+})();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    pollDelay = POLL_FAST;
+    sync();
+  }
+});
 
 // Tick the day-end countdown; when it expires, the engine (or server on the
 // next poll) resolves it.
@@ -3479,6 +3513,8 @@ else status('add players, or create an online game');
 // Debug/console hooks (handy for poking at the game from devtools).
 window.wordser = {
   render, // the raw canvas pass, for perf probes
+  sync,
+  get pollDelay() { return pollDelay; },
   get game() { return game; },
   set game(g) { game = g; },
   get session() { return session; },
