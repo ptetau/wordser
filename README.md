@@ -56,10 +56,16 @@ The last word always wears a halo: light spilling onto the board around it,
 never over the letters, so somebody else's move is obvious the moment you
 look.
 Three buttons sit at the top of the panel and open three panels, all built
-the same way, all closed by Esc or a click outside: **⚙ this table** (strict
+the same way, all closed by Esc or a click outside: **⚙ Table** (strict
 turns or free-for-all, a word target, "I'm busy — pass my turns", gliding
-the camera, starting again, ending the day), **🎲 your games** and **👤 your
-account**. Seats — adding players, the share link, adding a robot — stay in
+the camera, starting again, ending the day), **🎲 Games** and **👤 your
+account**. Before play starts the buttons say their names, so nobody has to
+guess what ⚙ holds; once a game is under way the labels fold away and the
+three become quiet icons out of the player's eye line — titles, aria-labels
+and a first-use glint still carry them. In the games list, any table you
+run carries a **🗑**: deleting takes the game away **for everyone** (no
+undo — everyone else's next poll reads it as expired), which is how an
+admin clears out the finished and the abandoned. Seats — adding players, the share link, adding a robot — stay in
 the panel under *Players & seats*, and fold away once the first word is
 down; open the fold any time and it stays open. The
 arrow keys drive the board cursor (the viewport follows): type to spell from
