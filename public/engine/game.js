@@ -73,6 +73,10 @@ const FOCAL_SAMPLES = 6; // board cells the day's fruit is arranged around
 const CHERRY_CHOICES = 7;
 const MAX_GOAL = 999; // words to play to, at the outside
 const DAYS_KEPT = 5; // how many days the leader table remembers
+// The log is a companion, not an archive: the panel shows a dozen lines and
+// nobody scrolls a thousand. Left unbounded it fattens every snapshot, every
+// network payload and every stored document for the life of a long game.
+const LOG_KEPT = 150;
 const QUIET_RADIUS = 6; // the patch a new day's star needs to itself...
 const QUIET_ENOUGH = 0.99; // ...and how empty it has to be
 const STAR_SEARCH = 6; // rings of the premium lattice to look through
@@ -925,6 +929,9 @@ export class Game {
   }
 
   #commit(player, points, message, coveredKeys = []) {
+    // Trim on the high-water mark rather than every line, so the array is
+    // not resliced per move; toJSON caps what actually leaves the engine.
+    if (this.log.length > LOG_KEPT * 2) this.log = this.log.slice(-LOG_KEPT);
     player.score += points;
     this.lastPlayerId = player.id;
     this.#noteActed(player);
@@ -1888,7 +1895,7 @@ export class Game {
       dayEndVote: this.dayEndVote ? { ...this.dayEndVote, agreed: [...this.dayEndVote.agreed] } : null,
       bag: [...this.bag.pool].sort().join(''),
       fruitBag: [...this.fruitBag.pool].sort().join(''),
-      log: [...this.log],
+      log: this.log.slice(-LOG_KEPT),
     };
   }
 

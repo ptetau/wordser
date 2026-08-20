@@ -18,7 +18,23 @@ export class Dictionary {
   }
 
   static fromText(text) {
-    return new Dictionary(text.split('\n'));
+    const d = new Dictionary();
+    d.addText(text);
+    return d;
+  }
+
+  /**
+   * Bulk-load a newline-separated word list. The bundled list is already
+   * trimmed and lowercase, so the per-word scrubbing the constructor does
+   * for arbitrary callers would only be 267,000 wasted string copies here —
+   * the one word that can pick up whitespace is the last, from a trailing
+   * newline, and the Set simply never gets asked for ''.
+   */
+  addText(text) {
+    for (const w of text.split('\n')) {
+      if (w) this.words.add(w);
+    }
+    return this;
   }
 
   has(word) {

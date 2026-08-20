@@ -7,7 +7,7 @@
 // UPSTASH_REDIS_REST_* env vars), written with a compare-and-set on a
 // sequence number so concurrent moves can't trample each other.
 
-import { Game, GameError, turnBelongsTo, waitingOn } from '../public/engine/game.js';
+import { Game, GameError, IDLE_SKIP_MS, turnBelongsTo, waitingOn } from '../public/engine/game.js';
 import { loadBundledDictionary } from '../public/engine/dictionary.js';
 import { buildWordList, takeCpuTurn } from '../public/cpu.js';
 import { RespClient } from './resp.js';
@@ -206,6 +206,30 @@ async function loadGame(record) {
 }
 
 /**
+ * Does the clock owe this game anything? Asked of the plain stored record,
+ * no engine required. Everything tickClock can change is either time-driven
+ * — the daily rollover, an expired day-end vote, the eight-hour idle skip —
+ * or was already settled by the move that made the state worth storing.
+ * The turn checks catch a stored game whose rotation points at a seat that
+ * cannot act (stuck, tileless, away): rare, but the engine must be stood up
+ * to fix them.
+ */
+function clockOwes(g) {
+  const now = Date.now();
+  if ((g.dateKey ?? '') !== new Date(now).toISOString().slice(0, 10)) return true;
+  if (g.dayEndVote && now >= g.dayEndVote.expiresAt) return true;
+  if (g.mode !== 'free' && g.turnId != null && (g.players?.length ?? 0) > 1) {
+    const holder = g.players[g.turnId];
+    if (!holder) return true;
+    if (g.turnId === g.lastPlayerId) return true; // a stuck rotation
+    if (!holder.isCpu && g.turnStartedAt && now - g.turnStartedAt >= IDLE_SKIP_MS) return true;
+    if (holder.rack?.length === 0) return true; // tileless: the engine passes them
+    if (holder.away) return true; // busy: the engine skips them
+  }
+  return false;
+}
+
+/**
  * Handle one API action against a store. Returns { status, data }.
  * Actions: create {name} · join {id, name} · state {id, playerId, token, since}
  *        · move {id, playerId, token, move} · addcpu {id, playerId, token}
@@ -343,15 +367,22 @@ export async function handleAction(store, body) {
     }
 
     if (action === 'state') {
-      const game = await loadGame(record);
-      if (game.tickClock()) {
-        const data = carryTokens(game.toJSON(), record);
-        const next = { id: record.id, seq: record.seq + 1, game: data };
-        if (await store.put(KEY(record.id), next, record.seq)) {
-          return { status: 200, data: view(next, playerId) };
+      // Every client polls every three seconds, and rebuilding the whole
+      // engine per poll just to ask the clock is the single biggest thing
+      // this server does. So the stored record is asked the cheap question
+      // first — is anything actually due? — and the engine only stands up
+      // on the rare poll where the answer is yes.
+      if (clockOwes(record.game)) {
+        const game = await loadGame(record);
+        if (game.tickClock()) {
+          const data = carryTokens(game.toJSON(), record);
+          const next = { id: record.id, seq: record.seq + 1, game: data };
+          if (await store.put(KEY(record.id), next, record.seq)) {
+            return { status: 200, data: view(next, playerId) };
+          }
+          // Someone else rolled it over concurrently; serve what we have.
+          return { status: 200, data: view(record, playerId) };
         }
-        // Someone else rolled it over concurrently; serve what we have.
-        return { status: 200, data: view(record, playerId) };
       }
       if (body.since != null && Number(body.since) === record.seq) {
         return { status: 200, data: { seq: record.seq, unchanged: true } };

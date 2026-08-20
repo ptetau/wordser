@@ -32,9 +32,23 @@ const status = (msg, cls = '') => {
   $('status').className = cls;
 };
 
-status('loading dictionary…');
-const dictText = await fetch('./data/words.txt').then((r) => r.text());
-const dictionary = Dictionary.fromText(dictText);
+// The word list is 2.7MB and boot does not wait for it. The board, the
+// seats and the live state are all usable the moment the page is — only
+// validating a word needs the list, and no human assembles a word in the
+// second it takes to arrive. Until then previews say so rather than lying.
+const dictionary = new Dictionary();
+dictionary.ready = false;
+status('unpacking the word list…');
+fetch('./data/words.txt')
+  .then((r) => r.text())
+  .then((text) => {
+    dictionary.addText(text);
+    dictionary.ready = true;
+    status('');
+    refresh();
+    runCpuTurns(); // a robot may have been sitting on its turn, wordless
+  })
+  .catch(() => status('the word list failed to load — refresh the page', 'error'));
 
 // ---------------------------------------------------------------- game state
 let game = new Game({ dictionary });
@@ -231,6 +245,175 @@ function wordHalo(colour) {
   return sprite;
 }
 
+// ------------------------------------------------------------ cell sprites
+//
+// The board is thousands of cells redrawn every frame, and drawing one the
+// long way — a rounded path, a gradient, three grain strokes, two runs of
+// text — costs the frame budget several times over on a big board. So every
+// distinct look is drawn exactly once per zoom level onto its own little
+// canvas, and a frame is drawImage per cell, which the GPU treats as a
+// stamp. Grain and speckle come in four jittered variants so neighbouring
+// tiles still refuse to match, picked per cell by position.
+//
+// The cache is keyed by the rounded cell size (a pinch redraws scaled from
+// the nearest cached size, then crisply once the size settles), the device
+// pixel ratio, and the theme.
+const sprites = { cell: new Map(), tile: new Map(), size: 0, dpr: 0 };
+const SPRITE_VARIANTS = 4;
+const TILE_PAD = 0.7; // tile sprites are 1.4 cells square: room for the shadow
+
+function ensureSprites() {
+  const size = Math.max(8, Math.round(cam.cell));
+  const dpr = window.devicePixelRatio || 1;
+  if (sprites.size === size && sprites.dpr === dpr) return;
+  sprites.cell.clear();
+  sprites.tile.clear();
+  sprites.size = size;
+  sprites.dpr = dpr;
+}
+
+function makeSprite(cells) {
+  const px = Math.ceil(cells * sprites.size * sprites.dpr);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = px;
+  const g = cv.getContext('2d');
+  g.scale(sprites.dpr, sprites.dpr);
+  return [cv, g];
+}
+
+const spritePath = (g, cx, cy, a) => {
+  g.beginPath();
+  g.roundRect(cx - a, cy - a, a * 2, a * 2, a * 0.22);
+};
+
+/** The board behind everything: plain felt, seam, star ground, premiums. */
+function cellSprite(kind, variant) {
+  const key = `${kind}:${variant}`;
+  const hit = sprites.cell.get(key);
+  if (hit) return hit;
+  const c = sprites.size;
+  const [cv, g] = makeSprite(1);
+  const mid = c / 2;
+  spritePath(g, mid, mid, c * 0.47);
+  // A trailing '!' is a premium drawn without its label — the ★ cell is a
+  // DW square, but the star glyph stands where the label would.
+  const bare = kind.endsWith('!');
+  const face = bare ? kind.slice(0, -1) : kind;
+  const isPremium = face in PREMIUM_TEXT;
+  g.fillStyle = isPremium
+    ? T().premium[face]
+    : face === 'start'
+      ? T().startFill
+      : face === 'seam'
+        ? T().seamFill
+        : T().cellFill;
+  g.fill();
+  if (T().cellStroke) {
+    g.strokeStyle = T().cellStroke;
+    g.lineWidth = 1;
+    g.stroke();
+  }
+  if (T().speckle && !isPremium) {
+    const rnd = cellHash(variant * 131 + 7, variant * 17 + 3);
+    g.fillStyle = T().speckle;
+    for (let i = 0; i < 3; i++) {
+      g.fillRect(mid - c * 0.35 + rnd() * c * 0.7, mid - c * 0.35 + rnd() * c * 0.7, 1.5, 1.5);
+    }
+  }
+  if (isPremium && c >= 26 && !bare) {
+    g.fillStyle = T().premiumLabel;
+    g.font = `${Math.floor(c * 0.24)}px ${T().letterFont ?? 'system-ui'}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(PREMIUM_TEXT[face], mid, mid);
+  }
+  sprites.cell.set(key, cv);
+  return cv;
+}
+
+/** A finished tile: shadow, face, grain, letter and value, ready to stamp. */
+function tileSprite(letter, { blank = false, pending = false, redefine = false }, variant) {
+  const key = `${letter}:${+blank}${+pending}${+redefine}:${variant}`;
+  const hit = sprites.tile.get(key);
+  if (hit) return hit;
+  const c = sprites.size;
+  const t = T().tile;
+  const [cv, g] = makeSprite(TILE_PAD * 2);
+  const mid = TILE_PAD * c;
+  const face = pending ? t.pendingFace : blank ? t.blankFace : t.face;
+  g.beginPath();
+  g.roundRect(mid - c * 0.4, mid - c * 0.36, c * 0.82, c * 0.86, c * 0.1);
+  g.fillStyle = 'rgba(0,0,0,0.34)';
+  g.fill();
+  spritePath(g, mid, mid, c * 0.42);
+  if (t.style === 'bevel') {
+    const grad = g.createLinearGradient(mid, mid - c / 2, mid, mid + c / 2);
+    grad.addColorStop(0, (pending ? t.pendingFaceLight : t.faceLight) ?? face);
+    grad.addColorStop(1, (pending ? t.pendingFaceDark : t.faceDark) ?? face);
+    g.fillStyle = grad;
+    g.fill();
+    if (t.edgeDark) {
+      g.strokeStyle = t.edgeDark;
+      g.lineWidth = Math.max(1.5, c * 0.045);
+      g.stroke();
+    }
+    if (t.edgeLight) {
+      spritePath(g, mid, mid - c * 0.03, c * 0.37);
+      g.strokeStyle = t.edgeLight;
+      g.lineWidth = 1;
+      g.stroke();
+    }
+    spritePath(g, mid, mid, c * 0.42);
+  } else {
+    g.fillStyle = face;
+    g.fill();
+  }
+  if (t.grain && !pending && !blank) {
+    const rnd = cellHash(variant * 977 + 11, variant * 41 + 5);
+    g.save();
+    g.clip();
+    g.strokeStyle = t.grain;
+    g.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const gy = mid - c * 0.35 + rnd() * c * 0.7;
+      g.beginPath();
+      g.moveTo(mid - c / 2, gy);
+      g.bezierCurveTo(mid - c * 0.17, gy + rnd() * c * 0.12 - c * 0.06, mid + c * 0.17, gy - rnd() * c * 0.12 + c * 0.06, mid + c / 2, gy);
+      g.stroke();
+    }
+    g.restore();
+    spritePath(g, mid, mid, c * 0.42);
+  }
+  if (redefine) {
+    g.strokeStyle = T().redefine;
+    g.lineWidth = 2;
+    g.stroke();
+  }
+  g.fillStyle = t.text;
+  g.font = `700 ${Math.floor(c * 0.48)}px ${T().letterFont ?? 'system-ui'}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(letter.toUpperCase(), mid, mid - c * 0.02);
+  const v = blank ? 0 : LETTER_VALUES[letter] ?? 0;
+  g.font = `${Math.floor(c * 0.19)}px ${T().letterFont ?? 'system-ui'}`;
+  g.fillText(String(v), mid + c * 0.24, mid + c * 0.3);
+  sprites.tile.set(key, cv);
+  return cv;
+}
+
+// Pointer events arrive faster than frames are worth painting — a mouse can
+// report at 1000Hz — so panning and pinching ask for a frame instead of
+// painting one, and at most one runs per animation frame.
+let renderQueued = false;
+function requestRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => {
+    renderQueued = false;
+    render();
+  });
+}
+
 // Today's island, worked out once per change rather than once per frame.
 // A placement always adds a cell, a new day moves the anchor, and nothing
 // else can alter which letters are joined to which.
@@ -247,10 +430,10 @@ function render() {
   const h = canvas.clientHeight;
   ctx.clearRect(0, 0, w, h);
   const c = cam.cell;
+  ensureSprites();
 
-  const drawTile = (x, y, letter, { blank = false, pending = false, redefine = false } = {}) => {
-    const t = T().tile;
-    let [cx, cy] = hexCenter(x, y);
+  const drawTile = (x, y, letter, opts = {}) => {
+    const [cx, cy] = hexCenter(x, y);
     const move = flourish(x, y);
     if (move) {
       // Transform about the tile's own centre so the letter rides with it.
@@ -260,67 +443,9 @@ function render() {
       ctx.scale(move.scale, move.scale);
       ctx.translate(-cx, -cy);
     }
-    const face = pending ? t.pendingFace : blank ? t.blankFace : t.face;
-    // A shadow under every tile: this is what makes them read as pieces
-    // resting on felt rather than colour printed onto it.
-    ctx.beginPath();
-    ctx.roundRect(cx - c * 0.4, cy - c * 0.36, c * 0.82, c * 0.86, c * 0.1);
-    ctx.fillStyle = 'rgba(0,0,0,0.34)';
-    ctx.fill();
-    hexPath(cx, cy, c * 0.42);
-    if (t.style === 'bevel') {
-      // A soft top-lit face with a darker lower edge reads as a raised tile.
-      const grad = ctx.createLinearGradient(cx, cy - c / 2, cx, cy + c / 2);
-      grad.addColorStop(0, (pending ? t.pendingFaceLight : t.faceLight) ?? face);
-      grad.addColorStop(1, (pending ? t.pendingFaceDark : t.faceDark) ?? face);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      if (t.edgeDark) {
-        ctx.strokeStyle = t.edgeDark;
-        ctx.lineWidth = Math.max(1.5, c * 0.045);
-        ctx.stroke();
-      }
-      if (t.edgeLight) {
-        hexPath(cx, cy - c * 0.03, c * 0.37);
-        ctx.strokeStyle = t.edgeLight;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-      hexPath(cx, cy, c * 0.42);
-    } else {
-      ctx.fillStyle = face;
-      ctx.fill();
-    }
-    if (t.grain && !pending && !blank) {
-      // Wood streaks, jittered per cell so no two tiles match.
-      const rnd = cellHash(x, y);
-      ctx.save();
-      ctx.clip();
-      ctx.strokeStyle = t.grain;
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 3; i++) {
-        const gy = cy - c * 0.35 + rnd() * c * 0.7;
-        ctx.beginPath();
-        ctx.moveTo(cx - c / 2, gy);
-        ctx.bezierCurveTo(cx - c * 0.17, gy + rnd() * c * 0.12 - c * 0.06, cx + c * 0.17, gy - rnd() * c * 0.12 + c * 0.06, cx + c / 2, gy);
-        ctx.stroke();
-      }
-      ctx.restore();
-      hexPath(cx, cy, c * 0.42);
-    }
-    if (redefine) {
-      ctx.strokeStyle = T().redefine;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-    ctx.fillStyle = t.text;
-    ctx.font = `700 ${Math.floor(c * 0.48)}px ${T().letterFont ?? 'system-ui'}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(letter.toUpperCase(), cx, cy - c * 0.02);
-    const v = blank ? 0 : LETTER_VALUES[letter] ?? 0;
-    ctx.font = `${Math.floor(c * 0.19)}px ${T().letterFont ?? 'system-ui'}`;
-    ctx.fillText(String(v), cx + c * 0.24, cy + c * 0.3);
+    const variant = (wrapCoord(x) * 7 + wrapCoord(y) * 13) % SPRITE_VARIANTS;
+    const pad = TILE_PAD * c;
+    ctx.drawImage(tileSprite(letter, opts, variant), cx - pad, cy - pad, pad * 2, pad * 2);
     if (move) ctx.restore();
   };
 
@@ -332,36 +457,11 @@ function render() {
     const [cx, cy] = hexCenter(x, y);
     const p = premiumAt(x, y);
     const isStart = wrapCoord(x) === game.startCell.x && wrapCoord(y) === game.startCell.y;
-    const onSeam = wrapCoord(x) === 0 || wrapCoord(y) === 0;
-    hexPath(cx, cy, c * 0.47);
-    ctx.fillStyle = p
-      ? T().premium[p]
-      : isStart
-        ? T().startFill
-        : onSeam
-          ? T().seamFill
-          : T().cellFill;
-    ctx.fill();
-    if (T().cellStroke) {
-      ctx.strokeStyle = T().cellStroke;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    if (T().speckle && !p) {
-      // A pinch of felt-like texture, stable per cell.
-      const rnd = cellHash(x, y);
-      ctx.fillStyle = T().speckle;
-      for (let i = 0; i < 3; i++) {
-        ctx.fillRect(cx - c * 0.35 + rnd() * c * 0.7, cy - c * 0.35 + rnd() * c * 0.7, 1.5, 1.5);
-      }
-    }
-    if (p && c >= 26 && !isStart) {
-      ctx.fillStyle = T().premiumLabel;
-      ctx.font = `${Math.floor(c * 0.24)}px ${T().letterFont ?? 'system-ui'}`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(PREMIUM_TEXT[p], cx, cy);
-    }
+    const kind = isStart
+      ? p ? `${p}!` : 'start'
+      : p ?? (wrapCoord(x) === 0 || wrapCoord(y) === 0 ? 'seam' : 'plain');
+    const variant = (wrapCoord(x) * 7 + wrapCoord(y) * 13) % SPRITE_VARIANTS;
+    ctx.drawImage(cellSprite(kind, variant), cx - c / 2, cy - c / 2, c, c);
 
     const tile = game.board.get(x, y);
     if (tile) {
@@ -1762,19 +1862,41 @@ function pendingReading() {
   return out.join('');
 }
 
+// The previews below clone the whole game and replay the pending move on
+// the copy, which is honest but not free — and refresh() asks for them far
+// more often than they change: every poll, every pan mid-placement, every
+// panel redraw. So each is memoized against a signature of the only things
+// that can change its answer: the pending move itself and the game it
+// would land on (any applied move grows the log or moves lastPlayerId).
+// A small map, not one slot: the write-over panel prices the same picks as
+// a swap and as a stack in the same breath, and they must not evict each
+// other.
+const previewMemo = new Map();
+function memoPreview(kind, pendingSig, compute) {
+  const sig = `${kind}|${currentPlayer}|${seq}|${game.log.length}|${game.lastPlayerId}|${pendingSig}`;
+  if (!previewMemo.has(sig)) {
+    if (previewMemo.size > 8) previewMemo.clear();
+    previewMemo.set(sig, compute());
+  }
+  return previewMemo.get(sig);
+}
+
 /** Dry-run the pending move on a throwaway copy for live score feedback. */
 function previewMove() {
   const move = currentMove();
   if (move == null || currentPlayer == null) return null;
-  try {
-    const clone = Game.fromJSON(game.toJSON(), { dictionary });
-    const r = clone.apply({ playerId: currentPlayer, ...move });
-    return { ok: true, points: r.points, words: r.words, fruit: r.fruits?.length > 0 };
-  } catch (err) {
-    if (err instanceof GameError) return { ok: false, message: err.message };
-    console.error(err);
-    return null;
-  }
+  if (!dictionary.ready) return { ok: false, message: 'unpacking the word list…' };
+  return memoPreview('place', JSON.stringify(move), () => {
+    try {
+      const clone = Game.fromJSON(game.toJSON(), { dictionary });
+      const r = clone.apply({ playerId: currentPlayer, ...move });
+      return { ok: true, points: r.points, words: r.words, fruit: r.fruits?.length > 0 };
+    } catch (err) {
+      if (err instanceof GameError) return { ok: false, message: err.message };
+      console.error(err);
+      return null;
+    }
+  });
 }
 
 /**
@@ -1784,17 +1906,20 @@ function previewMove() {
  */
 function previewOverwrite(kind) {
   if (currentPlayer == null || !swapping?.picks.length) return null;
-  try {
-    const clone = Game.fromJSON(game.toJSON(), { dictionary });
-    const r = kind === 'swap'
-      ? clone.swap({ playerId: currentPlayer, swaps: swapping.picks })
-      : clone.stack({ playerId: currentPlayer, stacks: swapping.picks });
-    return { ok: true, points: r.points, words: r.words };
-  } catch (err) {
-    if (err instanceof GameError) return { ok: false, message: err.message };
-    console.error(err);
-    return null;
-  }
+  if (!dictionary.ready) return { ok: false, message: 'unpacking the word list…' };
+  return memoPreview(kind, JSON.stringify(swapping.picks), () => {
+    try {
+      const clone = Game.fromJSON(game.toJSON(), { dictionary });
+      const r = kind === 'swap'
+        ? clone.swap({ playerId: currentPlayer, swaps: swapping.picks })
+        : clone.stack({ playerId: currentPlayer, stacks: swapping.picks });
+      return { ok: true, points: r.points, words: r.words };
+    } catch (err) {
+      if (err instanceof GameError) return { ok: false, message: err.message };
+      console.error(err);
+      return null;
+    }
+  });
 }
 
 const gotName = (l) => (l === BLANK ? 'wildcard' : l.toUpperCase());
@@ -1845,6 +1970,10 @@ function fruitNote(r) {
 
 function runCpuTurns() {
   if (online()) return;
+  // A robot can't weigh words it doesn't have yet; it gets its turn on the
+  // next nudge after the list lands (every move retries the robots).
+  if (!dictionary.ready) return;
+  cpuWordList ??= buildWordList(dictionary);
   let acted = false;
   let lastPoints = null;
   for (const p of game.players) {
@@ -1997,7 +2126,7 @@ const zoomBy = (k) => {
   cam.x = (cam.x + mx) * ratio - mx;
   cam.y = (cam.y + my) * ratio - my;
   cam.cell = s2;
-  render();
+  requestRender();
 };
 $('zoom-in').addEventListener('click', () => zoomBy(1.2));
 $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.2));
@@ -2065,7 +2194,7 @@ canvas.addEventListener('pointermove', (e) => {
     cam.x = (cam.x + mx) * k - mx;
     cam.y = (cam.y + my) * k - my;
     cam.cell = s2;
-    render();
+    requestRender();
     return;
   }
   if (!drag) return;
@@ -2077,7 +2206,7 @@ canvas.addEventListener('pointermove', (e) => {
     cam.y -= dy;
     drag.px = e.clientX;
     drag.py = e.clientY;
-    render();
+    requestRender();
   }
 });
 
@@ -2161,7 +2290,7 @@ canvas.addEventListener(
     cam.x = (cam.x + px) * k - px;
     cam.y = (cam.y + py) * k - py;
     cam.cell = s2;
-    render();
+    requestRender();
   },
   { passive: false },
 );
@@ -2604,7 +2733,7 @@ window.addEventListener('keydown', (e) => {
     cam.x = (cam.x + mx) * k - mx;
     cam.y = (cam.y + my) * k - my;
     cam.cell = s2;
-    render();
+    requestRender();
   }
 });
 
@@ -2716,7 +2845,6 @@ $('add-cpu').addEventListener('click', async () => {
     }
     return;
   }
-  cpuWordList ??= buildWordList(dictionary);
   const p = game.addCpu();
   if (currentPlayer == null) currentPlayer = p.id;
   status(`${p.name} joined the game 👋 — it plays whenever it may`, 'good');
@@ -2917,7 +3045,7 @@ rackBox.addEventListener('pointermove', (e) => {
   const cell = slot === null ? boardCellUnder(e.clientX, e.clientY) : null;
   const changed = (cell?.x ?? null) !== (dropCell?.x ?? null) || (cell?.y ?? null) !== (dropCell?.y ?? null);
   dropCell = cell;
-  if (changed) render();
+  if (changed) requestRender();
 });
 
 function endRackDrag(e) {
@@ -3350,6 +3478,7 @@ else status('add players, or create an online game');
 
 // Debug/console hooks (handy for poking at the game from devtools).
 window.wordser = {
+  render, // the raw canvas pass, for perf probes
   get game() { return game; },
   set game(g) { game = g; },
   get session() { return session; },
