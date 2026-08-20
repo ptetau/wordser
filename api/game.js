@@ -295,6 +295,7 @@ export async function handleAction(store, body) {
           stars: seat?.stars ?? 0,
           waitingFor: waitingOn(g)?.name ?? null,
           yourTurn: seat ? turnBelongsTo(g, seat.id) : false,
+          admin: seat ? g.adminId === seat.id : false,
         });
       }
       return { status: 200, data: { account: me.name, games } };
@@ -364,6 +365,20 @@ export async function handleAction(store, body) {
         return { status: 409, data: { error: 'the game changed underneath you — try again' } };
       }
       return { status: 200, data: view(next, playerId) };
+    }
+
+    if (action === 'delete') {
+      // The admin can clear a table away for good: the finished game that
+      // has said all it has to say, the abandoned one nobody comes back
+      // to. Credentials are the same ones every move uses — the seat
+      // token, or the signed-in account that owns the seat — and the game
+      // is simply gone: everyone else's next poll answers 404, which the
+      // client already reads as "this game has expired".
+      if (record.game.adminId !== playerId) {
+        return { status: 400, data: { error: 'only the game admin can delete a game' } };
+      }
+      await store.del(KEY(record.id));
+      return { status: 200, data: { deleted: record.id } };
     }
 
     if (action === 'state') {

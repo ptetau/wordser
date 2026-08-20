@@ -169,3 +169,43 @@ test('stacking and calling a new day both travel over the wire', async () => {
   assert.deepEqual(day.data.result.winners, ['Ana']);
   assert.equal(day.data.game.players[0].score, 0);
 });
+
+test('the admin can delete a game outright; nobody else can', async () => {
+  const store = memoryStore();
+  const { ana, ben } = await setupGame(store);
+
+  // Ben runs nothing, so his request is refused.
+  const refused = await handleAction(store, {
+    action: 'delete', id: ana.id, playerId: 1, token: ben.token,
+  });
+  assert.equal(refused.status, 400);
+  assert.match(refused.data.error, /only the game admin/);
+
+  // The admin's request removes the record for good...
+  const gone = await handleAction(store, {
+    action: 'delete', id: ana.id, playerId: 0, token: ana.token,
+  });
+  assert.equal(gone.status, 200);
+  assert.equal(gone.data.deleted, ana.id);
+
+  // ...so everyone else's next poll reads the game as expired.
+  const after = await handleAction(store, {
+    action: 'state', id: ana.id, playerId: 1, token: ben.token,
+  });
+  assert.equal(after.status, 404);
+});
+
+test('mygames says which tables are yours to run', async () => {
+  const store = memoryStore();
+  const sess = (await handleAction(store, {
+    action: 'signup', name: 'Ana', passphrase: 'long enough pass',
+  })).data;
+  const made = (await handleAction(store, {
+    action: 'create', name: 'Ana', accountToken: sess.accountToken,
+  })).data;
+  const mine = (await handleAction(store, {
+    action: 'mygames', accountToken: sess.accountToken,
+  })).data;
+  const card = mine.games.find((g) => g.id === made.id);
+  assert.equal(card.admin, true, 'the creator runs the table');
+});

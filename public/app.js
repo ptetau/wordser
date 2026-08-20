@@ -15,7 +15,7 @@ import { feasibleDirection } from './placement.js';
 import { drawFruit } from './fruit.js';
 import { FLOURISH_MS, flourishFor, flourishAt } from './flourish.js';
 import { LETTER_VALUES, BLANK } from './engine/tiles.js';
-import { Online, NetError, account, recent } from './net.js';
+import { Online, NetError, account, recent, deleteGame } from './net.js';
 import { notify } from './notify.js';
 import parlour from './themes/parlour.js';
 
@@ -123,7 +123,7 @@ function markUsed(...actions) {
 
 // One at a time: two sweeps in a 330px column read as decoration, one
 // reads as a pointer. Order is which hint helps most when several apply.
-const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange', 'account'];
+const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange', 'account', 'table'];
 let glintQueue = [];
 
 /** Glint `el` while `action` is still unfamiliar. */
@@ -1334,6 +1334,8 @@ function renderOnline() {
   // Playing with other people and nobody knows who you are: an account is
   // what carries this game to your phone and tells you when it's your go.
   if (online() && !account.get() && game.players.length > 1) glint($('account-btn'), 'account');
+  // The rules matter once there is a table to argue over them.
+  if (game.players.length > 1) glint($('table-btn'), 'table');
   $('share').hidden = !online();
   document.body.classList.toggle(
     'no-game',
@@ -1762,6 +1764,7 @@ function rememberThisGame() {
     stars: me?.stars ?? 0,
     yourTurn: game.isTheirTurn(session.playerId) && game.players.length > 1,
     waitingFor: waitingOn(game)?.name ?? null,
+    admin: game.isAdmin(session.playerId),
   });
   renderGames();
 }
@@ -3151,7 +3154,10 @@ const toggleMenu = (which) => showMenu(openMenu === which ? null : which);
 /** A table you can only be told about if the game knows who you are. */
 const waitingOnYou = (g) => Boolean(g.yourTurn) && (g.players?.length ?? 0) > 1;
 
-$('table-btn').addEventListener('click', () => toggleMenu('table'));
+$('table-btn').addEventListener('click', () => {
+  markUsed('table');
+  toggleMenu('table');
+});
 $('account-btn').addEventListener('click', () => {
   markUsed('account');
   toggleMenu('account');
@@ -3266,6 +3272,7 @@ async function refreshGames() {
 const gameCard = (g) => ({
   id: g.id, day: g.day, players: g.players, score: g.score,
   stars: g.stars ?? 0, yourTurn: g.yourTurn, waitingFor: g.waitingFor ?? null,
+  admin: Boolean(g.admin),
 });
 
 function renderGames() {
@@ -3279,6 +3286,8 @@ function renderGames() {
       : '<div class="muted">No online games on this device yet. Sign in and your games follow you anywhere.</div>';
   }
   for (const g of games) {
+    const row = document.createElement('div');
+    row.className = 'game-row';
     const b = document.createElement('button');
     if (waitingOnYou(g)) b.classList.add('your-turn');
     if (g.id === here) b.classList.add('here');
@@ -3298,7 +3307,34 @@ function renderGames() {
       if (g.id === here) return;
       location.search = `?g=${encodeURIComponent(g.id)}`;
     };
-    box.appendChild(b);
+    row.appendChild(b);
+    if (g.admin) {
+      // The admin can clear a table away for good — theirs to run, theirs
+      // to close. Everyone else's next poll learns the game has expired.
+      const bin = document.createElement('button');
+      bin.className = 'mini game-delete';
+      bin.textContent = '🗑';
+      bin.title = 'delete this game for everyone';
+      bin.setAttribute('aria-label', `delete the game with ${g.players.join(', ')}`);
+      bin.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete this game (${g.players.join(', ')}) for everyone? There is no undo.`)) return;
+        try {
+          await deleteGame(g.id);
+          recent.forget(g.id);
+          if (g.id === here) {
+            location.search = ''; // this table is gone; back to a fresh page
+            return;
+          }
+          status('game deleted', 'good');
+          refreshGames();
+        } catch (err) {
+          showError(err);
+        }
+      };
+      row.appendChild(bin);
+    }
+    box.appendChild(row);
   }
   if (!account.get() && games.length) {
     const note = document.createElement('div');

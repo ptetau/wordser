@@ -358,6 +358,11 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
   font-size: 12px; color: var(--muted);
   max-width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Before play the buttons say their names, so nobody has to guess what ⚙
+   holds; once the game is under way they fold to icons and stay out of the
+   player's eye line. The title, aria-label and glint still carry them. */
+body.playing .menu-btn .lbl { display: none; }
+body.playing .menu-btn { padding: 6px 8px; }
 .menu-btn[aria-expanded='true'] { background: #2e3542; border-color: var(--accent); }
 .menu-btn .badge {
   min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;
@@ -390,7 +395,8 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); ou
 .menu-foot { display: flex; flex-direction: column; gap: 6px; }
 .menu-foot button { width: 100%; font-size: 13px; }
 .menu-foot button[hidden] { display: none; }
-.rules-pointer { font-size: 12px; margin: 6px 0 0; }
+.game-row { display: flex; gap: 6px; align-items: stretch; }
+.game-row > button:first-child { flex: 1; min-width: 0; }
 /* Every focusable thing says where the keyboard is, in one voice. */
 :where(button, input, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
@@ -424,6 +430,14 @@ button.primary:hover { background: #387244; }
   width: 100%; text-align: left; font-size: 13px; padding: 8px 10px;
 }
 #my-games button.your-turn { border-color: var(--accent); }
+/* The admin's bin shares the row without crowding the card: the generic
+   width:100% above must not apply to it, and an id-level selector is what
+   it takes to say so. */
+#my-games .game-delete {
+  width: auto; flex: 0 0 42px; padding: 0; opacity: 0.7;
+  background: transparent; border-color: var(--panel-border);
+}
+#my-games .game-delete:hover { opacity: 1; background: #4a2323; border-color: #6d3434; }
 #my-games button.here { background: color-mix(in srgb, var(--accent) 12%, var(--input-bg)); }
 #my-games .when { color: var(--muted); font-size: 11px; margin-top: 2px; }
 

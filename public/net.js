@@ -80,6 +80,20 @@ const RECENT_MAX = 12;
  * wherever you are, but a guest has only what this device remembers — and
  * even signed in it means the list is on screen before the network answers.
  */
+/**
+ * Delete a game outright — the admin's move, made with whatever credential
+ * this device holds for it: the saved seat token, or the signed-in account
+ * that owns the seat.
+ */
+export async function deleteGame(id) {
+  return api({
+    action: 'delete',
+    id,
+    token: Online.saved(id)?.token ?? null,
+    accountToken: account.token(),
+  });
+}
+
 export const recent = {
   list() {
     try {
