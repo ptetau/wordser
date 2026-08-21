@@ -3555,8 +3555,11 @@ $('end-day').addEventListener('click', () => {
 });
 
 if (savedName) {
+  // Your own name belongs in the online field — that seat is yours. The
+  // hot-seat "add player" field stays blank: it is usually somebody else
+  // being added, and a prefilled host one tap from joining twice reads as
+  // the game inviting them to.
   $('online-name').value = savedName;
-  $('player-name').value = savedName;
 }
 
 resize();

@@ -557,6 +557,9 @@ details li { margin: 5px 0; }
   background: var(--input-bg); min-height: 20px;
   box-shadow: 0 -10px 14px rgba(23, 26, 32, 0.85);
 }
+/* With nothing to say it says nothing: an empty status painted its
+   background as a bare bar across the panel. */
+#status:empty { display: none; }
 #status.error { background: #4a2323; color: #ffb4a9; }
 #status.good { background: #23402a; color: #a9e8b0; }
 
