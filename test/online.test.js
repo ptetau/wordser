@@ -209,3 +209,24 @@ test('mygames says which tables are yours to run', async () => {
   const card = mine.games.find((g) => g.id === made.id);
   assert.equal(card.admin, true, 'the creator runs the table');
 });
+
+test('a robot handed the first turn plays it, whatever move handed it over', async () => {
+  const store = memoryStore();
+  const ana = (await handleAction(store, { action: 'create', name: 'Ana' })).data;
+  await handleAction(store, {
+    action: 'addcpu', id: ana.id, playerId: 0, token: ana.token,
+  });
+
+  // A restart naming the robot: the old move-type gate never ran robots
+  // after a restart, so the table opened on a seat that would never move.
+  const r = await handleAction(store, {
+    action: 'move', id: ana.id, playerId: 0, token: ana.token,
+    move: { type: 'restart', firstId: 1 },
+  });
+  assert.equal(r.status, 200);
+  const g = r.data.game;
+  const robotActed = g.log.some((l, i) =>
+    i > g.log.findIndex((x) => /fresh game/.test(x)) && /Robo 1/.test(l));
+  assert.ok(robotActed, `the robot never moved: ${JSON.stringify(g.log.slice(-3))}`);
+  assert.equal(g.lastPlayerId, 1, 'the robot went first');
+});

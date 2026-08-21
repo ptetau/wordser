@@ -44,6 +44,8 @@ fetch('./data/words.txt')
   .then((text) => {
     dictionary.addText(text);
     dictionary.ready = true;
+    // A robot may have been holding the very first turn, waiting on words.
+    if (!online()) setTimeout(runCpuTurns, 200);
     status('');
     refresh();
     runCpuTurns(); // a robot may have been sitting on its turn, wordless
@@ -1813,17 +1815,16 @@ async function doMove(move, describe) {
           break;
         }
       }
-      setTimeout(runCpuTurns, 650);
     }
     // A skip isn't a turn taken, but it does hand the turn on: round one
-    // screen the device should follow it, and a robot should answer it.
+    // screen the device should follow it.
     if (move.type === 'skip' && !online() && game.turnId != null) {
       currentPlayer = game.turnId;
-      setTimeout(runCpuTurns, 650);
     }
-    // Marking yourself busy also hands the turn on, but the device stays
-    // with you — you have just flicked a switch and may want it back.
-    if (move.type === 'away' && !online()) setTimeout(runCpuTurns, 650);
+    // Whatever the move was, if it left a robot holding the turn the robot
+    // must be run — a restart or a new day can open on one just as surely
+    // as a played word hands one the rotation.
+    if (!online()) setTimeout(runCpuTurns, 650);
     showLastMove();
     refresh();
     return r;
@@ -2876,6 +2877,9 @@ $('add-player-form').addEventListener('submit', (e) => {
   autoStartPlacement();
   status(`${p.name} joined the game 👋 — dealt ${p.rack.length} tiles`, 'good');
   refresh();
+  // A robot seated before this human may have been holding the first turn
+  // all along, with nobody to run it until now.
+  setTimeout(runCpuTurns, 650);
   if (wasPlaying) offerRestart([p.name]);
   showPanelTop();
 });
@@ -2895,7 +2899,7 @@ $('add-cpu').addEventListener('click', async () => {
   const p = game.addCpu();
   if (currentPlayer == null) currentPlayer = p.id;
   status(`${p.name} joined the game 👋 — it plays whenever it may`, 'good');
-  if (game.players.length > 1) setTimeout(runCpuTurns, 400);
+  setTimeout(runCpuTurns, 400);
   refresh();
   showPanelTop();
 });

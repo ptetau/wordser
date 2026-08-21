@@ -17,17 +17,6 @@ import {
 
 const KEY = (id) => `wordser:game:${id}`;
 const MAX_PLAYERS = 16;
-/** Moves that don't consume a turn, so no CPU seat should answer them. */
-// Moves that leave the turn where it is, so the robots don't get to answer
-// them. Everything that puts letters on the board — placing, swapping — is
-// a play and is not on this list.
-// A skip is not on this list on purpose: it hands the turn on, and if it
-// lands on a robot the robot should answer it.
-const NON_TURN_MOVES = [
-  'choose', 'proposeEnd', 'voteEnd', 'kick', 'admin', 'restart', 'goal', 'mode',
-  // 'away' is missing on purpose, like 'skip': marking yourself busy hands
-  // the turn on, and a robot it lands on should answer it.
-];
 
 let dictionaryPromise;
 const dictionary = () => (dictionaryPromise ??= loadBundledDictionary());
@@ -408,8 +397,12 @@ export async function handleAction(store, body) {
     if (action === 'move') {
       const game = await loadGame(record);
       const result = game.apply({ ...body.move, playerId });
-      const nonTurn = NON_TURN_MOVES.includes(body.move?.type);
-      if (!nonTurn && game.players.some((p) => p.isCpu)) {
+      // Run the robots whenever one actually holds the turn, whatever move
+      // put it there — a played word, a skip landing on one, a restart or a
+      // new day opening on one. Checking eligibility instead of move type
+      // keeps the old promise (settings moves don't wake robots needlessly)
+      // without the old hole (a robot handed the first turn never ran).
+      if (game.players.some((p) => p.isCpu && game.isTheirTurn(p.id))) {
         runCpuTurns(game, await cpuWords());
       }
       // A removal renumbers the seats below it — tokens (and my own id)
