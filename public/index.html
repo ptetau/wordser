@@ -28,30 +28,26 @@
         <h1>wordser</h1>
         <p class="tagline">n-player scrabble on a looping world</p>
       </div>
-      <nav id="menubar" aria-label="wordser menus">
-        <button id="table-btn" class="menu-btn" aria-haspopup="dialog" aria-expanded="false"
-                aria-controls="table-menu" aria-label="table rules"
-                title="Table — this game's rules: turns, a finish line, starting again, ending the day">
-          ⚙<span class="lbl">Table</span>
-        </button>
-        <button id="games-btn" class="menu-btn" aria-haspopup="dialog" aria-expanded="false"
-                aria-controls="games-menu" aria-label="your games"
-                title="Games — every table you're at · ● your turn · 🗑 delete one you run">
-          🎲<span class="lbl">Games</span><span id="games-badge" class="badge" hidden></span>
-        </button>
-        <button id="account-btn" class="menu-btn" aria-haspopup="dialog" aria-expanded="false"
-                aria-controls="account-menu" aria-label="your account"
-                title="Account — sign in and your games and turn alerts follow you to any device">
-          👤<span class="lbl" id="account-btn-name">Sign in</span>
+      <nav id="menubar" aria-label="wordser menu">
+        <button id="menu-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-sheet"
+                title="Menu — the table's rules, your games, your account">
+          ☰<span id="games-badge" class="badge" hidden></span>
         </button>
       </nav>
 
     <div id="menu-layer" hidden>
-      <div id="table-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Table rules">
-        <div class="menu-head">
-          <span>This table</span>
-          <button class="mini menu-close" aria-label="close">✕</button>
+      <div id="menu-sheet" role="dialog" aria-label="wordser menu" tabindex="-1">
+        <div id="menu-tabs" role="tablist" aria-label="menu sections">
+          <button id="table-btn" class="menu-tab" role="tab" aria-selected="false" aria-controls="table-menu"
+                  title="This game's rules: turns, a finish line, starting again, ending the day">⚙<span class="lbl">Table</span></button>
+          <button id="games-btn" class="menu-tab" role="tab" aria-selected="false" aria-controls="games-menu"
+                  title="Every table you're at · ● your turn · 🗑 delete one you run">🎲<span class="lbl">Games</span></button>
+          <button id="account-btn" class="menu-tab" role="tab" aria-selected="false" aria-controls="account-menu"
+                  title="Sign in and your games and turn alerts follow you to any device">👤<span class="lbl" id="account-btn-name">Sign in</span></button>
+          <button class="mini menu-close" aria-label="close the menu" title="Close (Esc)">✕</button>
         </div>
+
+      <div id="table-menu" class="menu" hidden role="tabpanel" aria-label="Table rules">
         <div id="table-rules">
           <label id="mode-row" class="menu-toggle" hidden
                  title="On: play rotates seat by seat. Off: free-for-all — anyone may play, never twice in a row">
@@ -82,13 +78,10 @@
         </div>
       </div>
 
-      <div id="games-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Your games">
-        <div class="menu-head">
-          <span>Your games</span>
-          <span class="menu-head-tools">
-            <button id="games-refresh" class="mini" title="refresh the list" aria-label="refresh the list">↻</button>
-            <button class="mini menu-close" aria-label="close">✕</button>
-          </span>
+      <div id="games-menu" class="menu" hidden role="tabpanel" aria-label="Your games">
+        <div class="menu-sub">
+          <span>Every table you're at</span>
+          <button id="games-refresh" class="mini" title="Ask the server again" aria-label="refresh the list">↻</button>
         </div>
         <div id="my-games"></div>
         <div class="menu-foot">
@@ -96,11 +89,7 @@
         </div>
       </div>
 
-      <div id="account-menu" class="menu" hidden tabindex="-1" role="dialog" aria-label="Your account">
-        <div class="menu-head">
-          <span>Your account</span>
-          <button class="mini menu-close" aria-label="close">✕</button>
-        </div>
+      <div id="account-menu" class="menu" hidden role="tabpanel" aria-label="Your account">
         <div id="account-out">
           <p id="account-status" class="muted">Sign in and your games — and your turn alerts — follow you to any device.</p>
           <div id="account-form">
@@ -127,6 +116,7 @@
           </details>
           <button id="sign-out" class="mini" title="This device forgets you — your games stay on your account">Sign out</button>
         </div>
+      </div>
       </div>
     </div>
     </header>

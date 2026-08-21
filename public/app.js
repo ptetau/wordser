@@ -123,7 +123,7 @@ function markUsed(...actions) {
 
 // One at a time: two sweeps in a 330px column read as decoration, one
 // reads as a pointer. Order is which hint helps most when several apply.
-const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange', 'account', 'table'];
+const GLINT_ORDER = ['play', 'cpu', 'propose', 'exchange', 'account', 'menu'];
 let glintQueue = [];
 
 /** Glint `el` while `action` is still unfamiliar. */
@@ -1333,9 +1333,10 @@ function renderOnline() {
   if (!$('cpu-section').hidden && stuck) glint($('add-cpu'), 'cpu');
   // Playing with other people and nobody knows who you are: an account is
   // what carries this game to your phone and tells you when it's your go.
-  if (online() && !account.get() && game.players.length > 1) glint($('account-btn'), 'account');
-  // The rules matter once there is a table to argue over them.
-  if (game.players.length > 1) glint($('table-btn'), 'table');
+  if (online() && !account.get() && game.players.length > 1) glint($('menu-btn'), 'account');
+  // The menu matters once there is a table to have rules and games worth
+  // arguing over; one soft glint until it has been opened once.
+  if (game.players.length > 1) glint($('menu-btn'), 'menu');
   $('share').hidden = !online();
   document.body.classList.toggle(
     'no-game',
@@ -1555,6 +1556,10 @@ function refresh() {
   applyGlints();
   document.body.classList.toggle('mode-exchange', Boolean(exchanging));
   document.body.classList.toggle('mode-swap', Boolean(swapping));
+  document.body.classList.toggle(
+    'mid-move',
+    Boolean(placement?.entries.length || swapping || exchanging || pickingBlank),
+  );
   canvas.classList.toggle('placing', !!placement);
   render();
 }
@@ -2203,7 +2208,12 @@ let pinch = null;
 
 canvas.addEventListener('pointerdown', (e) => {
   cancelFlight(); // touching the board takes the camera back
-  canvas.setPointerCapture(e.pointerId);
+  // A pointer can be gone before the handler runs — a tap that ended in
+  // the same frame, a pen leaving the screen — and capture then throws.
+  // Losing capture for one gesture is fine; crashing the handler is not.
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {}
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) {
     drag = { px: e.clientX, py: e.clientY, moved: false };
@@ -3058,7 +3068,9 @@ rackBox.addEventListener('pointermove', (e) => {
   const d = rackDrag;
   if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > 10) {
     d.moved = true;
-    d.tile.setPointerCapture(e.pointerId);
+    try {
+      d.tile.setPointerCapture(e.pointerId);
+    } catch {}
     d.tile.classList.add('lifted');
     rackBox.classList.add('arranging'); // light the empty slots as targets
     const ghost = d.tile.cloneNode(true);
@@ -3124,28 +3136,33 @@ rackBox.addEventListener('pointercancel', endRackDrag);
 // button in the masthead that opens one labelled panel — so they are built,
 // opened, closed and keyboarded identically, and only one is ever open.
 
-const MENUS = { table: 'table-menu', account: 'account-menu', games: 'games-menu' };
-let openMenu = null;
+const MENUS = { table: 'table-menu', games: 'games-menu', account: 'account-menu' };
+let openMenu = null; // the open tab, or null while the sheet is away
+let lastTab = null; // the tab to reopen on, once one has been chosen
 
 function showMenu(which) {
   const from = openMenu;
   openMenu = which;
+  if (which) lastTab = which;
   $('menu-layer').hidden = which === null;
+  $('menu-btn').setAttribute('aria-expanded', String(which !== null));
   for (const [name, id] of Object.entries(MENUS)) {
     $(id).hidden = name !== which;
-    $(`${name}-btn`).setAttribute('aria-expanded', String(name === which));
+    const tab = $(`${name}-btn`);
+    tab.setAttribute('aria-selected', String(name === which));
+    tab.classList.toggle('active', name === which);
   }
   if (which === 'games') refreshGames();
   if (which === 'account') renderAccount();
   if (which === 'table') renderTableRules();
-  if (which) {
-    // Opening moves the keyboard onto the panel itself, so its name is read
-    // out and Tab walks its contents in order rather than starting halfway
-    // through them. Closing hands the keyboard back to the button that
-    // opened it, so Tab never lands in dead space.
-    $(MENUS[which]).focus({ preventScroll: true });
-  } else if (from) {
-    $(`${from}-btn`)?.focus({ preventScroll: true });
+  if (which && !from) {
+    // Opening moves the keyboard onto the sheet, so its name is read out
+    // and Tab walks its contents in order; switching tabs leaves focus
+    // where it is. Closing hands the keyboard back to the ☰ that opened
+    // it, so Tab never lands in dead space.
+    $('menu-sheet').focus({ preventScroll: true });
+  } else if (!which && from) {
+    $('menu-btn')?.focus({ preventScroll: true });
   }
 }
 
@@ -3154,15 +3171,22 @@ const toggleMenu = (which) => showMenu(openMenu === which ? null : which);
 /** A table you can only be told about if the game knows who you are. */
 const waitingOnYou = (g) => Boolean(g.yourTurn) && (g.players?.length ?? 0) > 1;
 
-$('table-btn').addEventListener('click', () => {
-  markUsed('table');
-  toggleMenu('table');
+// One quiet ☰ holds the lot. It opens where you left off — or, first time,
+// on your games when one is waiting, otherwise on the table's rules.
+$('menu-btn').addEventListener('click', () => {
+  markUsed('menu');
+  if (openMenu) {
+    showMenu(null);
+    return;
+  }
+  showMenu(lastTab ?? (!$('games-badge').hidden ? 'games' : 'table'));
 });
+$('table-btn').addEventListener('click', () => showMenu('table'));
+$('games-btn').addEventListener('click', () => showMenu('games'));
 $('account-btn').addEventListener('click', () => {
   markUsed('account');
-  toggleMenu('account');
+  showMenu('account');
 });
-$('games-btn').addEventListener('click', () => toggleMenu('games'));
 for (const btn of document.querySelectorAll('.menu-close')) {
   btn.addEventListener('click', () => showMenu(null));
 }

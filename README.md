@@ -55,17 +55,18 @@ pan; pinch or scroll to zoom, or use the **＋ －** buttons on the board.
 The last word always wears a halo: light spilling onto the board around it,
 never over the letters, so somebody else's move is obvious the moment you
 look.
-Three buttons sit at the top of the panel and open three panels, all built
-the same way, all closed by Esc or a click outside: **⚙ Table** (strict
-turns or free-for-all, a word target, "I'm busy — pass my turns", gliding
-the camera, starting again, ending the day), **🎲 Games** and **👤 your
-account**. Before play starts the buttons say their names, so nobody has to
-guess what ⚙ holds; once a game is under way the labels fold away and the
-three become quiet icons out of the player's eye line — titles, aria-labels
-and a first-use glint still carry them. In the games list, any table you
-run carries a **🗑**: deleting takes the game away **for everyone** (no
-undo — everyone else's next poll reads it as expired), which is how an
-admin clears out the finished and the abandoned. Seats — adding players, the share link, adding a robot — stay in
+Everything that is not the game itself lives behind one quiet **☰** in the
+masthead — transparent until pointed at, wearing the ● count of games
+waiting on you, and fading further while you are mid-word (hover brings it
+back; a waiting turn's badge keeps its colour). It opens a single sheet
+with three tabs, one surface with one close: **⚙ Table** (strict turns or
+free-for-all, a word target, "I'm busy — pass my turns", gliding the
+camera, starting again, ending the day), **🎲 Games** (every table you're
+at, ● for your turn, a **🗑** beside any you run — deleting takes the game
+away for everyone, no undo) and **👤** your account. It opens where you
+left off — first time, on Games if one is waiting, otherwise on Table.
+Esc or a click outside closes it; every control in it says what it does on
+hover. Seats — adding players, the share link, adding a robot — stay in
 the panel under *Players & seats*, and fold away once the first word is
 down; open the fold any time and it stays open. The
 arrow keys drive the board cursor (the viewport follows): type to spell from
